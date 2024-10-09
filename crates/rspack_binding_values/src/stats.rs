@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use napi_derive::napi;
 use rspack_collections::Identifier;
 use rspack_core::{
+  rspack_sources::{RawSource, Source},
   EntrypointsStatsOption, ExtendedStatsOptions, Stats, StatsChunk, StatsModule, StatsUsedExports,
 };
 use rspack_napi::{
@@ -12,10 +13,10 @@ use rspack_napi::{
   },
   Ref,
 };
+use rspack_util::itoa;
 use rustc_hash::FxHashMap as HashMap;
 
-use super::{JsCompilation, ToJsCompatSource};
-use crate::identifier::JsIdentifier;
+use crate::{identifier::JsIdentifier, JsCompilation};
 
 thread_local! {
   static MODULE_DESCRIPTOR_REFS: RefCell<HashMap<Identifier, Ref>> = Default::default();
@@ -112,7 +113,7 @@ impl From<rspack_core::StatsError<'_>> for JsStatsError {
       }),
       message: stats.message,
       loc: stats.loc,
-      file: stats.file.map(|f| f.to_string_lossy().to_string()),
+      file: stats.file.map(|f| f.as_str().to_string()),
       chunk_name: stats.chunk_name,
       chunk_entry: stats.chunk_entry,
       chunk_initial: stats.chunk_initial,
@@ -164,7 +165,7 @@ impl From<rspack_core::StatsWarning<'_>> for JsStatsWarning {
         .into()
       }),
       message: stats.message,
-      file: stats.file.map(|f| f.to_string_lossy().to_string()),
+      file: stats.file.map(|f| f.as_str().to_string()),
       chunk_name: stats.chunk_name,
       chunk_entry: stats.chunk_entry,
       chunk_initial: stats.chunk_initial,
@@ -328,7 +329,7 @@ impl From<(String, rspack_core::LogType)> for JsStatsLogging {
         args: Some(vec![format!(
           "{}: {} ms",
           label,
-          secs * 1000 + subsec_nanos as u64 / 1000000
+          itoa!(secs * 1000 + subsec_nanos as u64 / 1000000)
         )]),
         trace: None,
       },
@@ -355,8 +356,8 @@ impl From<(String, rspack_core::LogType)> for JsStatsLogging {
           } else {
             hit as f32 / total as f32 * 100_f32
           },
-          hit,
-          total,
+          itoa!(hit),
+          itoa!(total),
         )]),
         trace: None,
       },
@@ -408,11 +409,11 @@ impl From<rspack_core::StatsAsset> for JsStatsAsset {
 
 #[napi(object, object_from_js = false)]
 pub struct JsStatsAssetInfo {
-  pub minimized: bool,
-  pub development: bool,
-  pub hot_module_replacement: bool,
+  pub minimized: Option<bool>,
+  pub development: Option<bool>,
+  pub hot_module_replacement: Option<bool>,
   pub source_filename: Option<String>,
-  pub immutable: bool,
+  pub immutable: Option<bool>,
   pub javascript_module: Option<bool>,
   pub chunkhash: Vec<String>,
   pub contenthash: Vec<String>,
@@ -600,20 +601,14 @@ impl TryFrom<StatsModule<'_>> for JsStatsModule {
   type Error = napi::Error;
 
   fn try_from(stats: StatsModule) -> std::result::Result<Self, Self::Error> {
-    let source = stats
-      .source
-      .map(|source| {
-        source.to_js_compat_source().map(|js_compat_source| {
-          if js_compat_source.is_raw && js_compat_source.is_buffer {
-            JsStatsModuleSource::B(js_compat_source.source)
-          } else {
-            let s = String::from_utf8_lossy(js_compat_source.source.as_ref()).to_string();
-            JsStatsModuleSource::A(s)
-          }
-        })
-      })
-      .transpose()
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let source = stats.source.map(|source| {
+      if let Some(raw_source) = source.as_any().downcast_ref::<RawSource>() {
+        if raw_source.is_buffer() {
+          return JsStatsModuleSource::B(Buffer::from(raw_source.buffer().to_vec()));
+        }
+      }
+      JsStatsModuleSource::A(source.source().to_string())
+    });
 
     let mut sizes = stats
       .sizes
@@ -1007,8 +1002,9 @@ pub struct JsStatsChunkGroup {
   pub assets_size: f64,
   pub auxiliary_assets: Option<Vec<JsStatsChunkGroupAsset>>,
   pub auxiliary_assets_size: Option<f64>,
-  pub children: Option<JsStatsChunkGroupChildren>,
   pub is_over_size_limit: Option<bool>,
+  pub children: Option<JsStatsChunkGroupChildren>,
+  pub child_assets: Option<JsStatsChildGroupChildAssets>,
 }
 
 impl FromNapiValue for JsStatsChunkGroup {
@@ -1032,7 +1028,32 @@ impl From<rspack_core::StatsChunkGroup> for JsStatsChunkGroup {
         .map(|assets| assets.into_iter().map(Into::into).collect()),
       auxiliary_assets_size: stats.auxiliary_assets_size,
       children: stats.children.map(|i| i.into()),
+      child_assets: stats.child_assets.map(|i| i.into()),
       is_over_size_limit: stats.is_over_size_limit,
+    }
+  }
+}
+
+#[napi(object, object_from_js = false)]
+pub struct JsStatsChildGroupChildAssets {
+  pub preload: Option<Vec<String>>,
+  pub prefetch: Option<Vec<String>>,
+}
+
+impl FromNapiValue for JsStatsChildGroupChildAssets {
+  unsafe fn from_napi_value(
+    _env: napi::sys::napi_env,
+    _napi_val: napi::sys::napi_value,
+  ) -> Result<Self> {
+    unreachable!()
+  }
+}
+
+impl From<rspack_core::StatschunkGroupChildAssets> for JsStatsChildGroupChildAssets {
+  fn from(stats: rspack_core::StatschunkGroupChildAssets) -> Self {
+    Self {
+      preload: (!stats.preload.is_empty()).then_some(stats.preload),
+      prefetch: (!stats.prefetch.is_empty()).then_some(stats.prefetch),
     }
   }
 }

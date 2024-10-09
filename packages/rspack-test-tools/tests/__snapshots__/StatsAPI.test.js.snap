@@ -20,10 +20,7 @@ Object {
       "info": Object {
         "chunkhash": Array [],
         "contenthash": Array [],
-        "development": false,
         "fullhash": Array [],
-        "hotModuleReplacement": false,
-        "immutable": false,
         "isOverSizeLimit": false,
         "javascriptModule": false,
         "minimized": true,
@@ -52,7 +49,7 @@ Object {
         "main.js",
       ],
       "filteredModules": undefined,
-      "hash": "6264df4ebe23175182cf",
+      "hash": "ef6849a04b135f983911",
       "id": "909",
       "idHints": Array [],
       "initial": true,
@@ -161,6 +158,7 @@ Object {
       "assetsSize": 207,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",
@@ -175,7 +173,7 @@ Object {
   "errorsCount": 0,
   "filteredAssets": undefined,
   "filteredModules": undefined,
-  "hash": "614628b5932899e281aa",
+  "hash": "d27b1f8bbdf2e13f1b91",
   "modules": Array [
     Object {
       "assets": Array [],
@@ -254,6 +252,7 @@ Object {
       "assetsSize": 207,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",
@@ -290,10 +289,7 @@ Object {
       "info": Object {
         "chunkhash": Array [],
         "contenthash": Array [],
-        "development": false,
         "fullhash": Array [],
-        "hotModuleReplacement": false,
-        "immutable": false,
         "isOverSizeLimit": false,
         "javascriptModule": false,
         "minimized": true,
@@ -322,7 +318,7 @@ Object {
         "main.js",
       ],
       "filteredModules": undefined,
-      "hash": "74703a42d091bf923302",
+      "hash": "9b2b751ee9c70405e371",
       "id": "909",
       "idHints": Array [],
       "initial": true,
@@ -675,6 +671,7 @@ Object {
       "assetsSize": 441,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",
@@ -688,7 +685,7 @@ Object {
   "errorsCount": 0,
   "filteredAssets": undefined,
   "filteredModules": undefined,
-  "hash": "500785fc8e6b099fa5e6",
+  "hash": "345f9530d25377198050",
   "modules": Array [
     Object {
       "assets": Array [],
@@ -1392,6 +1389,7 @@ Object {
       "assetsSize": 441,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",
@@ -1427,10 +1425,7 @@ Object {
       "info": Object {
         "chunkhash": Array [],
         "contenthash": Array [],
-        "development": false,
         "fullhash": Array [],
-        "hotModuleReplacement": false,
-        "immutable": false,
         "isOverSizeLimit": false,
         "javascriptModule": false,
         "minimized": true,
@@ -1454,7 +1449,7 @@ Object {
       "files": Array [
         "main.js",
       ],
-      "hash": "6264df4ebe23175182cf",
+      "hash": "ef6849a04b135f983911",
       "id": "909",
       "idHints": Array [],
       "initial": true,
@@ -1678,10 +1673,7 @@ Object {
       "info": Object {
         "chunkhash": Array [],
         "contenthash": Array [],
-        "development": false,
         "fullhash": Array [],
-        "hotModuleReplacement": false,
-        "immutable": false,
         "isOverSizeLimit": false,
         "javascriptModule": false,
         "minimized": true,
@@ -1710,7 +1702,7 @@ Object {
         "main.js",
       ],
       "filteredModules": undefined,
-      "hash": "507b35a9bc223de6c9b0",
+      "hash": "770328aa6786a7bd40f1",
       "id": "909",
       "idHints": Array [],
       "initial": true,
@@ -2044,6 +2036,7 @@ exports.c = require(\\"./c?c=3\\");
       "assetsSize": 346,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",
@@ -2058,7 +2051,7 @@ exports.c = require(\\"./c?c=3\\");
   "errorsCount": 0,
   "filteredAssets": undefined,
   "filteredModules": undefined,
-  "hash": "f155d1e27c19baefa4cc",
+  "hash": "e5c3f8bfb19708a3a81e",
   "modules": Array [
     Object {
       "assets": Array [],
@@ -2362,6 +2355,7 @@ exports.c = require(\\"./c?c=3\\");
       "assetsSize": 346,
       "auxiliaryAssets": Array [],
       "auxiliaryAssetsSize": 0,
+      "childAssets": Object {},
       "children": Object {},
       "chunks": Array [
         "909",

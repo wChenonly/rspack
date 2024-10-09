@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::sync::{mpsc, LazyLock, Mutex};
 
+use cow_utils::CowUtils;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use regex::Regex;
@@ -45,6 +46,7 @@ pub struct PluginOptions {
 
 #[derive(Debug, Default)]
 pub struct MinimizerOptions {
+  pub minify: Option<bool>,
   pub compress: BoolOrDataConfig<TerserCompressorOptions>,
   pub mangle: BoolOrDataConfig<MangleOptions>,
   pub format: JsMinifyFormatOptions,
@@ -174,7 +176,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
 
       let is_matched = match_object(options, filename);
 
-      if !is_matched || original.get_info().minimized {
+      if !is_matched || original.get_info().minimized.unwrap_or(false) {
         return false
       }
 
@@ -199,6 +201,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
         };
 
         let js_minify_options = JsMinifyOptions {
+          minify: minimizer_options.minify.unwrap_or(true),
           compress: minimizer_options.compress.clone(),
           mangle: minimizer_options.mangle.clone(),
           format: minimizer_options.format.clone(),
@@ -212,7 +215,8 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           let banner = match &extract_comments.banner {
             OptionWrapper::Default => {
               let dir = Path::new(filename).parent().expect("should has parent");
-              let relative = Path::new(&comments_filename).strip_prefix(dir).expect("should has common prefix").to_string_lossy().to_string().replace('\\', "/");
+              let raw = Path::new(&comments_filename).strip_prefix(dir).expect("should has common prefix").to_string_lossy();
+              let relative = raw.cow_replace('\\', "/");
               Some(format!("/*! For license information please see {relative} */"))
             },
             OptionWrapper::Disabled => None,
@@ -257,7 +261,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           .contains_key(filename)
         {
           ConcatSource::new([
-            RawSource::Source(banner).boxed(),
+            RawSource::from(banner).boxed(),
             RawSource::from("\n").boxed(),
             source
           ]).boxed()
@@ -265,7 +269,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           source
         };
         original.set_source(Some(source));
-        original.get_info_mut().minimized = true;
+        original.get_info_mut().minimized.replace(true);
       }
 
       Ok(())
@@ -285,7 +289,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
         CompilationAsset {
           source: Some(comments.source),
           info: AssetInfo {
-            minimized: true,
+            minimized: Some(true),
             ..Default::default()
           },
         },
@@ -303,7 +307,7 @@ impl Plugin for SwcJsMinimizerRspackPlugin {
   fn apply(
     &self,
     ctx: PluginContext<&mut rspack_core::ApplyContext>,
-    _options: &mut rspack_core::CompilerOptions,
+    _options: &rspack_core::CompilerOptions,
   ) -> Result<()> {
     ctx
       .context
@@ -321,6 +325,7 @@ impl Plugin for SwcJsMinimizerRspackPlugin {
 
 #[derive(Debug, Clone, Default)]
 pub struct JsMinifyOptions {
+  pub minify: bool,
   pub compress: BoolOrDataConfig<TerserCompressorOptions>,
   pub mangle: BoolOrDataConfig<MangleOptions>,
   pub format: JsMinifyFormatOptions,

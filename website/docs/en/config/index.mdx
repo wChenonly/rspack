@@ -82,6 +82,14 @@ You need to install `ts-node` as `devDependencies` so that Rspack can resolve th
 }
 ```
 
+If the version of Node.js you are using supports the [--experimental-transform-types](https://nodejs.org/api/cli.html#--experimental-transform-types) flag, you can use the built-in TS transformation of Node.js without needing to install `ts-node`.
+
+```json title="package.json"
+{
+  "build": "NODE_OPTIONS=--experimental-transform-types rspack build"
+}
+```
+
 Note that Rspack will first search JavaScript and then TypeScript if the JS file does not exist.
 
 ## Specify the Configuration File
@@ -134,3 +142,22 @@ module.exports = function (env, argv) {
   };
 };
 ```
+
+## Merge Configurations
+
+You can use the `merge` function exported by `webpack-merge` to merge multiple configurations.
+
+```js title="rspack.config.js"
+const { merge } = require('webpack-merge');
+
+const base = {};
+
+const dev = {
+  plugins: [new DevelopmentSpecifiedPlugin()],
+};
+
+module.exports =
+  process.env.NODE_ENV === 'development' ? merge(base, dev) : base;
+```
+
+For more information of `merge`, please refer to [webpack-merge documentation](https://npmjs.com/package/webpack-merge).

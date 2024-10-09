@@ -21,7 +21,7 @@ type Exports = WebAssembly.Instance["exports"] & {
 	final: (b: number) => void;
 };
 
-class WasmHash {
+export class WasmHash {
 	exports: Exports;
 	instancesPool: WebAssembly.Instance[];
 	buffered: number;
@@ -86,7 +86,7 @@ class WasmHash {
 	 */
 	_updateWithShortString(data: string, encoding?: BufferEncoding): void {
 		const { exports, buffered, mem, chunkSize } = this;
-		let endPos;
+		let endPos: number;
 		if (data.length < 70) {
 			if (!encoding || encoding === "utf-8" || encoding === "utf8") {
 				endPos = buffered;

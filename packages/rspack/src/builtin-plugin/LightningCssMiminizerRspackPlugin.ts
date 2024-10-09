@@ -1,17 +1,13 @@
 import {
 	BuiltinPluginName,
-	type RawLightningCssBrowsers,
 	type RawLightningCssMinimizerRspackPluginOptions
 } from "@rspack/binding";
 
-import browserslist from "browserslist";
 import {
 	type Drafts,
 	type FeatureOptions,
 	type NonStandard,
 	type PseudoClasses,
-	type Targets,
-	browserslistToTargets,
 	toFeatures
 } from "../builtin-loader/lightningcss";
 import type { AssetConditions } from "../util/assetCondition";
@@ -24,7 +20,7 @@ export type LightningCssMinimizerRspackPluginOptions = {
 	removeUnusedLocalIdents?: boolean;
 	minimizerOptions?: {
 		errorRecovery?: boolean;
-		targets?: Targets | string[] | string;
+		targets?: string[] | string;
 		include?: FeatureOptions;
 		exclude?: FeatureOptions;
 		draft?: Drafts;
@@ -51,17 +47,8 @@ export const LightningCssMinimizerRspackPlugin = create(
 				errorRecovery: options?.minimizerOptions?.errorRecovery ?? true,
 				unusedSymbols: options?.minimizerOptions?.unusedSymbols ?? [],
 				include: include ? toFeatures(include) : undefined,
-				exclude: exclude
-					? toFeatures(exclude)
-					: // exclude all features, avoid downgrade css syntax when minimize
-						// 1048575 = Features.Empty | Features.Nesting | ... | Features.LogicalProperties
-						1048575,
-				targets:
-					typeof targets === "string" || Array.isArray(targets)
-						? (browserslistToTargets(
-								browserslist(targets)
-							) as RawLightningCssBrowsers)
-						: targets,
+				exclude: exclude ? toFeatures(exclude) : undefined,
+				targets: typeof targets === "string" ? [targets] : targets,
 				draft: draft ? { customMedia: draft.customMedia ?? false } : undefined,
 				nonStandard: nonStandard
 					? {

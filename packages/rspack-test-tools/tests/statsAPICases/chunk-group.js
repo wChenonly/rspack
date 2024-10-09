@@ -26,17 +26,18 @@ module.exports = {
 		    "assets": Array [
 		      Object {
 		        "name": "main.js",
-		        "size": 14167,
+		        "size": 14505,
 		      },
 		    ],
-		    "assetsSize": 14167,
+		    "assetsSize": 14505,
 		    "auxiliaryAssets": Array [
 		      Object {
 		        "name": "main.js.map",
-		        "size": 681,
+		        "size": 684,
 		      },
 		    ],
-		    "auxiliaryAssetsSize": 681,
+		    "auxiliaryAssetsSize": 684,
+		    "childAssets": Object {},
 		    "children": Object {
 		      "prefetch": Array [
 		        Object {
@@ -87,6 +88,14 @@ module.exports = {
 		      },
 		    ],
 		    "auxiliaryAssetsSize": 514,
+		    "childAssets": Object {
+		      "prefetch": Array [
+		        "chunk-b.js",
+		      ],
+		      "preload": Array [
+		        "chunk-b.js",
+		      ],
+		    },
 		    "children": Object {
 		      "prefetch": Array [
 		        Object {
@@ -155,6 +164,7 @@ module.exports = {
 		    "assetsSize": 136,
 		    "auxiliaryAssets": Array [],
 		    "auxiliaryAssetsSize": 0,
+		    "childAssets": Object {},
 		    "children": Object {},
 		    "chunks": Array [
 		      "807",
@@ -173,6 +183,7 @@ module.exports = {
 		    "assetsSize": 136,
 		    "auxiliaryAssets": Array [],
 		    "auxiliaryAssetsSize": 0,
+		    "childAssets": Object {},
 		    "children": Object {},
 		    "chunks": Array [
 		      "805",
@@ -191,6 +202,7 @@ module.exports = {
 		    "assetsSize": 136,
 		    "auxiliaryAssets": Array [],
 		    "auxiliaryAssetsSize": 0,
+		    "childAssets": Object {},
 		    "children": Object {},
 		    "chunks": Array [
 		      "212",
@@ -203,17 +215,18 @@ module.exports = {
 		    "assets": Array [
 		      Object {
 		        "name": "main.js",
-		        "size": 14167,
+		        "size": 14505,
 		      },
 		    ],
-		    "assetsSize": 14167,
+		    "assetsSize": 14505,
 		    "auxiliaryAssets": Array [
 		      Object {
 		        "name": "main.js.map",
-		        "size": 681,
+		        "size": 684,
 		      },
 		    ],
-		    "auxiliaryAssetsSize": 681,
+		    "auxiliaryAssetsSize": 684,
+		    "childAssets": Object {},
 		    "children": Object {
 		      "prefetch": Array [
 		        Object {

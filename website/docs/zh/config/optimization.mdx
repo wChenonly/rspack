@@ -1,6 +1,6 @@
-import PropertyType from '../../../components/property-type.tsx';
+import PropertyType from '../../../components/PropertyType.tsx';
 
-import WebpackLicense from '@components/webpack-license';
+import WebpackLicense from '@components/WebpackLicense';
 
 <WebpackLicense from="https://webpack.docschina.org/configuration/optimization/" />
 
@@ -58,7 +58,7 @@ import WebpackLicense from '@components/webpack-license';
 />
 
 自定义压缩器。默认使用 [`rspack.SwcJsMinimizerRspackPlugin`](/plugins/rspack/swc-js-minimizer-rspack-plugin)
-和 [`rspack.LightningCssMinimizerRspackPlugin`](/plugins/rspack/swc-css-minimizer-rspack-plugin)。当声明了 `optimization.minimizer`，默认压缩器会被禁用。
+和 [`rspack.LightningCssMinimizerRspackPlugin`](/plugins/rspack/lightning-css-minimizer-rspack-plugin)。当声明了 `optimization.minimizer`，默认压缩器会被禁用。
 
 ```js title=rspack.config.js
 const terserPlugin = require('terser-webpack-plugin');
@@ -93,7 +93,7 @@ module.exports = {
           },
         },
       }),
-      new rspack.SwcCssMinimizerRspackPlugin({
+      new rspack.LightningCssMinimizerRspackPlugin({
         minimizerOptions: {
           errorRecovery: false,
         },
@@ -306,7 +306,17 @@ function f2() {
 
 这里我们将 `value` 赋值给了 `value2`，`value2` 和 `value` 也分别在函数 `f2` 和 `f1` 中被访问，但函数没有被调用，因此没有使用到 `value2` 和 `value`，因此 `value` 的导入是可以被删除的。
 
-                                             |
+## optimization.concatenateModules
+
+<PropertyType
+  type="boolean"
+  defaultValueList={[
+    { defaultValue: 'true', mode: 'production' },
+    { defaultValue: 'false', mode: 'development' },
+  ]}
+/>
+
+开启模块拼接优化，允许将多个模块拼接成单个模块以降低产物体积，提升压缩效率。此优化需要开启 [optimization.providedExports](#optimizationprovidedexports) 和 [optimization.usedExports](#optimizationusedexports)。默认情况下，`optimization.concatenateModules` 在 `production` 模式下启用，其它模式则禁用。
 
 ## optimization.nodeEnv
 
@@ -335,3 +345,15 @@ module.exports = {
 :::tip
 当 [mode](/config/mode) 被设置为 `'none'` 时，`optimization.nodeEnv` 默认为 `false`。
 :::
+
+## optimization.emitOnErrors
+
+<PropertyType
+  type="boolean"
+  defaultValueList={[
+    { defaultValue: 'false', mode: 'production' },
+    { defaultValue: 'true', mode: 'development' },
+  ]}
+/>
+
+开启 optimization.emitOnErrors 时，即使编译过程中发生错误也会生成产物。关键错误会被注入到产物代码中，运行它们时会抛出错误。

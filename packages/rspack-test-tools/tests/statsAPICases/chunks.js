@@ -27,7 +27,7 @@ module.exports = {
 		      "chunkB.js",
 		    ],
 		    "filteredModules": undefined,
-		    "hash": "3cd21283efb6761456db",
+		    "hash": "bf7629c34eadb1d16318",
 		    "id": "250",
 		    "idHints": Array [],
 		    "initial": false,
@@ -110,7 +110,7 @@ module.exports = {
 		    ],
 		    "origins": Array [
 		      Object {
-		        "loc": "2:9-46",
+		        "loc": "2:9-55",
 		        "module": "<PROJECT_ROOT>/tests/fixtures/chunk-b.js",
 		        "moduleId": "725",
 		        "moduleIdentifier": "<PROJECT_ROOT>/tests/fixtures/chunk-b.js",
@@ -144,7 +144,7 @@ module.exports = {
 		      "main.js",
 		    ],
 		    "filteredModules": undefined,
-		    "hash": "a18b3c5199301c15e563",
+		    "hash": "c0a99515ebfa264f9f23",
 		    "id": "909",
 		    "idHints": Array [],
 		    "initial": true,
@@ -235,7 +235,7 @@ module.exports = {
 		    "size": 85,
 		    "sizes": Object {
 		      "javascript": 85,
-		      "runtime": 8791,
+		      "runtime": 9129,
 		    },
 		    "type": "chunk",
 		  },

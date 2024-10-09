@@ -29,7 +29,8 @@ import { cutOffLoaderExecution } from "./ErrorHelpers";
 import { type CodeGenerationResult, Module } from "./Module";
 import type { NormalModuleFactory } from "./NormalModuleFactory";
 import type { ResolverFactory } from "./ResolverFactory";
-import { JsDiagnostic, type RspackError } from "./RspackError";
+import { JsRspackDiagnostic, type RspackError } from "./RspackError";
+import { RuntimeModule } from "./RuntimeModule";
 import {
 	Stats,
 	type StatsAsset,
@@ -49,7 +50,9 @@ import { StatsFactory } from "./stats/StatsFactory";
 import { StatsPrinter } from "./stats/StatsPrinter";
 import { type AssetInfo, JsAssetInfo } from "./util/AssetInfo";
 import MergeCaller from "./util/MergeCaller";
+import { createReadonlyMap } from "./util/createReadonlyMap";
 import { createFakeCompilationDependencies } from "./util/fake";
+import type { InputFileSystem } from "./util/fs";
 import type Hash from "./util/hash";
 import { memoizeValue } from "./util/memoize";
 import { JsSource } from "./util/source";
@@ -70,11 +73,6 @@ export interface LogEntry {
 	time?: number;
 	trace?: string[];
 }
-
-export type RuntimeModule = liteTapable.SyncHook<
-	[JsRuntimeModule, Chunk],
-	void
->;
 
 export interface CompilationParams {
 	normalModuleFactory: NormalModuleFactory;
@@ -214,7 +212,10 @@ export class Compilation {
 			[Chunk, Set<string>],
 			void
 		>;
-		runtimeModule: RuntimeModule;
+		runtimeRequirementInTree: liteTapable.HookMap<
+			liteTapable.SyncBailHook<[Chunk, Set<string>], void>
+		>;
+		runtimeModule: liteTapable.SyncHook<[JsRuntimeModule, Chunk], void>;
 		seal: liteTapable.SyncHook<[], void>;
 		afterSeal: liteTapable.AsyncSeriesHook<[], void>;
 	}>;
@@ -224,7 +225,7 @@ export class Compilation {
 	compiler: Compiler;
 	resolverFactory: ResolverFactory;
 
-	inputFileSystem: any;
+	inputFileSystem: InputFileSystem | null;
 	options: RspackOptionsNormalized;
 	outputOptions: OutputNormalized;
 	logging: Map<string, LogEntry[]>;
@@ -346,6 +347,9 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 				"chunk",
 				"runtimeRequirements"
 			]),
+			runtimeRequirementInTree: new liteTapable.HookMap(
+				() => new liteTapable.SyncBailHook(["chunk", "runtimeRequirements"])
+			),
 			runtimeModule: new liteTapable.SyncHook(["module", "chunk"]),
 			seal: new liteTapable.SyncHook([]),
 			afterSeal: new liteTapable.AsyncSeriesHook([])
@@ -402,10 +406,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 	/**
 	 * Get the named chunk groups.
 	 *
-	 * Note: This is a proxy for webpack internal API, only method `get` and `keys` are supported now.
+	 * Note: This is a proxy for webpack internal API, only method `get`, `keys`, `values` and `entries` are supported now.
 	 */
-	get namedChunkGroups(): ReadonlyMap<string, Readonly<ChunkGroup>> {
-		return {
+	get namedChunkGroups() {
+		return createReadonlyMap<ChunkGroup>({
 			keys: (): IterableIterator<string> => {
 				const names = this.#inner.getNamedChunkGroupKeys();
 				return names[Symbol.iterator]();
@@ -416,12 +420,20 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 					return chunk && ChunkGroup.__from_binding(chunk, this.#inner);
 				}
 			}
-		} as Map<string, Readonly<ChunkGroup>>;
+		});
 	}
 
 	get modules(): ReadonlySet<Module> {
 		return new Set(
 			this.#inner.modules.map(module => Module.__from_binding(module, this))
+		);
+	}
+
+	get builtModules(): ReadonlySet<Module> {
+		return new Set(
+			this.#inner.builtModules.map(module =>
+				Module.__from_binding(module, this)
+			)
 		);
 	}
 
@@ -432,10 +444,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 	/**
 	 * Get the named chunks.
 	 *
-	 * Note: This is a proxy for webpack internal API, only method `get` and `keys` is supported now.
+	 * Note: This is a proxy for webpack internal API, only method `get`, `keys`, `values` and `entries` are supported now.
 	 */
-	get namedChunks(): ReadonlyMap<string, Readonly<Chunk>> {
-		return {
+	get namedChunks() {
+		return createReadonlyMap<Chunk>({
 			keys: (): IterableIterator<string> => {
 				const names = this.#inner.getNamedChunkKeys();
 				return names[Symbol.iterator]();
@@ -446,7 +458,7 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 					return chunk && Chunk.__from_binding(chunk, this.#inner);
 				}
 			}
-		} as Map<string, Readonly<Chunk>>;
+		});
 	}
 
 	get entries(): Map<string, EntryData> {
@@ -561,8 +573,6 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 
 	/**
 	 * Update an existing asset. Trying to update an asset that doesn't exist will throw an error.
-	 *
-	 * FIXME: *AssetInfo* may be undefined in update fn for webpack impl, but still not implemented in rspack
 	 */
 	updateAsset(
 		filename: string,
@@ -679,7 +689,7 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 	 *
 	 * @internal
 	 */
-	__internal__pushDiagnostic(diagnostic: binding.JsDiagnostic) {
+	__internal__pushRspackDiagnostic(diagnostic: binding.JsRspackDiagnostic) {
 		this.#inner.pushDiagnostic(diagnostic);
 	}
 
@@ -688,9 +698,16 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 	 *
 	 * @internal
 	 */
-	__internal__pushNativeDiagnostics(
-		diagnostics: ExternalObject<"Diagnostic[]">
-	) {
+	__internal__pushDiagnostic(diagnostic: ExternalObject<"Diagnostic">) {
+		this.#inner.pushNativeDiagnostic(diagnostic);
+	}
+
+	/**
+	 * Note: This is not a webpack public API, maybe removed in future.
+	 *
+	 * @internal
+	 */
+	__internal__pushDiagnostics(diagnostics: ExternalObject<"Diagnostic[]">) {
 		this.#inner.pushNativeDiagnostics(diagnostics);
 	}
 
@@ -709,7 +726,7 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 					for (let i = 0; i < errs.length; i++) {
 						const error = errs[i];
 						inner.pushDiagnostic(
-							JsDiagnostic.__to_binding(error, JsRspackSeverity.Error)
+							JsRspackDiagnostic.__to_binding(error, JsRspackSeverity.Error)
 						);
 					}
 					return Reflect.apply(target, thisArg, errs);
@@ -740,7 +757,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 					errs: ErrorType[]
 				) {
 					const errList = errs.map(error => {
-						return JsDiagnostic.__to_binding(error, JsRspackSeverity.Error);
+						return JsRspackDiagnostic.__to_binding(
+							error,
+							JsRspackSeverity.Error
+						);
 					});
 					inner.spliceDiagnostic(0, 0, errList);
 					return Reflect.apply(target, thisArg, errs);
@@ -754,7 +774,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 					[startIdx, delCount, ...errors]: [number, number, ...ErrorType[]]
 				) {
 					const errList = errors.map(error => {
-						return JsDiagnostic.__to_binding(error, JsRspackSeverity.Error);
+						return JsRspackDiagnostic.__to_binding(
+							error,
+							JsRspackSeverity.Error
+						);
 					});
 					inner.spliceDiagnostic(startIdx, startIdx + delCount, errList);
 					return Reflect.apply(target, thisArg, [
@@ -767,10 +790,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 		];
 
 		for (const item of proxyMethod) {
-			const proxyedMethod = new Proxy(errors[item.method as any], {
+			const proxiedMethod = new Proxy(errors[item.method as any], {
 				apply: item.handler as any
 			});
-			errors[item.method as any] = proxyedMethod;
+			errors[item.method as any] = proxiedMethod;
 		}
 		return errors;
 	}
@@ -793,7 +816,7 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 						thisArg,
 						processWarningsHook.call(warns as any).map(warn => {
 							inner.pushDiagnostic(
-								JsDiagnostic.__to_binding(warn, JsRspackSeverity.Warn)
+								JsRspackDiagnostic.__to_binding(warn, JsRspackSeverity.Warn)
 							);
 							return warn;
 						})
@@ -829,7 +852,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 						0,
 						0,
 						warnings.map(warn => {
-							return JsDiagnostic.__to_binding(warn, JsRspackSeverity.Warn);
+							return JsRspackDiagnostic.__to_binding(
+								warn,
+								JsRspackSeverity.Warn
+							);
 						})
 					);
 					return Reflect.apply(target, thisArg, warnings);
@@ -844,7 +870,7 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 				) {
 					warns = processWarningsHook.call(warns as any);
 					const warnList = warns.map(warn => {
-						return JsDiagnostic.__to_binding(warn, JsRspackSeverity.Warn);
+						return JsRspackDiagnostic.__to_binding(warn, JsRspackSeverity.Warn);
 					});
 					inner.spliceDiagnostic(startIdx, startIdx + delCount, warnList);
 					return Reflect.apply(target, thisArg, [
@@ -857,10 +883,10 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 		];
 
 		for (const item of proxyMethod) {
-			const proxyedMethod = new Proxy(warnings[item.method as any], {
+			const proxiedMethod = new Proxy(warnings[item.method as any], {
 				apply: item.handler as any
 			});
-			warnings[item.method as any] = proxyedMethod;
+			warnings[item.method as any] = proxiedMethod;
 		}
 		return warnings;
 	}
@@ -991,22 +1017,22 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 	}
 
 	fileDependencies = createFakeCompilationDependencies(
-		() => this.#inner.getFileDependencies(),
+		() => this.#inner.dependencies().fileDependencies,
 		d => this.#inner.addFileDependencies(d)
 	);
 
 	contextDependencies = createFakeCompilationDependencies(
-		() => this.#inner.getContextDependencies(),
+		() => this.#inner.dependencies().contextDependencies,
 		d => this.#inner.addContextDependencies(d)
 	);
 
 	missingDependencies = createFakeCompilationDependencies(
-		() => this.#inner.getMissingDependencies(),
+		() => this.#inner.dependencies().missingDependencies,
 		d => this.#inner.addMissingDependencies(d)
 	);
 
 	buildDependencies = createFakeCompilationDependencies(
-		() => this.#inner.getBuildDependencies(),
+		() => this.#inner.dependencies().buildDependencies,
 		d => this.#inner.addBuildDependencies(d)
 	);
 
@@ -1052,6 +1078,14 @@ BREAKING CHANGE: Asset processing hooks in Compilation has been merged into a si
 
 	rebuildModule(m: Module, f: (err: Error, m: Module) => void) {
 		this.#rebuildModuleCaller.push([m.identifier(), f]);
+	}
+
+	addRuntimeModule(chunk: Chunk, runtimeModule: RuntimeModule) {
+		runtimeModule.attach(this, chunk, this.chunkGraph);
+		this.#inner.addRuntimeModule(
+			chunk.__internal__innerUkey(),
+			RuntimeModule.__to_binding(this, runtimeModule)
+		);
 	}
 
 	/**

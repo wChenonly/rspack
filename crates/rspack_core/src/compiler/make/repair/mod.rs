@@ -6,12 +6,14 @@ pub mod process_dependencies;
 use std::sync::Arc;
 
 use rspack_error::Result;
+use rspack_fs::ReadableFileSystem;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use super::MakeArtifact;
 use crate::{
   module_graph::{ModuleGraph, ModuleGraphPartial},
   old_cache::Cache as OldCache,
+  unaffected_cache::UnaffectedModulesCache,
   utils::task_loop::{run_task_loop, Task},
   BuildDependency, Compilation, CompilerOptions, DependencyType, Module, ModuleFactory,
   ModuleProfile, NormalModuleSource, ResolverFactory, SharedPluginDriver,
@@ -20,10 +22,13 @@ use crate::{
 pub struct MakeTaskContext {
   // compilation info
   pub plugin_driver: SharedPluginDriver,
+  pub buildtime_plugin_driver: SharedPluginDriver,
+  pub fs: Arc<dyn ReadableFileSystem>,
   pub compiler_options: Arc<CompilerOptions>,
   pub resolver_factory: Arc<ResolverFactory>,
   pub loader_resolver_factory: Arc<ResolverFactory>,
   pub old_cache: Arc<OldCache>,
+  pub unaffected_modules_cache: Arc<UnaffectedModulesCache>,
   pub dependency_factories: HashMap<DependencyType, Arc<dyn ModuleFactory>>,
 
   pub artifact: MakeArtifact,
@@ -33,11 +38,14 @@ impl MakeTaskContext {
   pub fn new(compilation: &Compilation, artifact: MakeArtifact) -> Self {
     Self {
       plugin_driver: compilation.plugin_driver.clone(),
+      buildtime_plugin_driver: compilation.buildtime_plugin_driver.clone(),
       compiler_options: compilation.options.clone(),
       resolver_factory: compilation.resolver_factory.clone(),
       loader_resolver_factory: compilation.loader_resolver_factory.clone(),
       old_cache: compilation.old_cache.clone(),
+      unaffected_modules_cache: compilation.unaffected_modules_cache.clone(),
       dependency_factories: compilation.dependency_factories.clone(),
+      fs: compilation.input_filesystem.clone(),
       artifact,
     }
   }
@@ -57,13 +65,16 @@ impl MakeTaskContext {
     let mut compilation = Compilation::new(
       self.compiler_options.clone(),
       self.plugin_driver.clone(),
+      self.buildtime_plugin_driver.clone(),
       self.resolver_factory.clone(),
       self.loader_resolver_factory.clone(),
       None,
       self.old_cache.clone(),
+      self.unaffected_modules_cache.clone(),
       None,
       Default::default(),
       Default::default(),
+      self.fs.clone(),
     );
     compilation.dependency_factories = self.dependency_factories.clone();
     compilation.swap_make_artifact(&mut self.artifact);
@@ -124,8 +135,7 @@ pub fn repair(
           .and_then(|module| module.name_for_condition()),
         issuer_layer: parent_module.and_then(|m| m.get_layer()).cloned(),
         original_module_context: parent_module.and_then(|m| m.get_context()),
-        dependency: dependency.clone(),
-        dependencies: vec![id],
+        dependencies: vec![dependency.clone()],
         resolve_options: parent_module.and_then(|module| module.get_resolve_options()),
         options: compilation.options.clone(),
         current_profile,

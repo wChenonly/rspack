@@ -1,10 +1,10 @@
 [package]
-edition    = "2021"
-license    = "MIT"
-name       = "rspack_ast"
-repository = "https://github.com/web-infra-dev/rspack"
-version    = "0.1.0"
 description = "rspack ast"
+edition     = "2021"
+license     = "MIT"
+name        = "rspack_ast"
+repository  = "https://github.com/web-infra-dev/rspack"
+version     = "0.1.0"
 [dependencies]
 anyhow = { workspace = true }
 swc_core = { workspace = true, features = [
@@ -21,12 +21,6 @@ swc_core = { workspace = true, features = [
   "ecma_transforms_module",
   "swc_ecma_codegen",
   "swc_ecma_visit",
-  "css_ast",
-  "css_codegen",
-  "css_parser",
-  "css_utils",
-  "css_visit",
-  "css_modules",
 ] }
 swc_error_reporters = { workspace = true }
 swc_node_comments = { workspace = true }

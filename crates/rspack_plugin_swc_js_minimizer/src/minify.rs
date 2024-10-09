@@ -227,6 +227,7 @@ pub fn minify(
                 &swc_ecma_minifier::option::ExtraOptions {
                   unresolved_mark,
                   top_level_mark,
+                  mangle_name_cache: None,
                 },
               );
 
@@ -287,7 +288,7 @@ pub fn minify(
                 .insert(
                   filename.to_string(),
                   ExtractedCommentsInfo {
-                    source: RawSource::Source(extracted_comments.join("\n\n")).boxed(),
+                    source: RawSource::from(extracted_comments.join("\n\n")).boxed(),
                     comments_file_name: extract_comments.filename.to_string(),
                   },
                 );
@@ -315,7 +316,7 @@ pub fn minify(
               names: source_map_names,
             },
             None,
-            true,
+            opts.minify,
             Some(&comments),
             &opts.format,
           )

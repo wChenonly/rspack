@@ -9,15 +9,17 @@ use regex::Regex;
 use rspack_core::{
   diagnostics::map_box_diagnostics_to_module_parse_diagnostics,
   rspack_sources::{BoxSource, ConcatSource, RawSource, ReplaceSource, Source, SourceExt},
-  BuildMetaDefaultObject, BuildMetaExportsType, ChunkGraph, ConstDependency, CssExportsConvention,
-  Dependency, DependencyId, DependencyTemplate, ErrorSpan, GenerateContext, LocalIdentName, Module,
-  ModuleDependency, ModuleGraph, ModuleIdentifier, ModuleType, ParseContext, ParseResult,
-  ParserAndGenerator, RuntimeSpec, SourceType, TemplateContext, UsageState,
+  BuildMetaDefaultObject, BuildMetaExportsType, ChunkGraph, Compilation, ConstDependency,
+  CssExportsConvention, Dependency, DependencyId, DependencyTemplate, GenerateContext,
+  LocalIdentName, Module, ModuleDependency, ModuleGraph, ModuleIdentifier, ModuleType,
+  NormalModule, ParseContext, ParseResult, ParserAndGenerator, RealDependencyLocation, RuntimeSpec,
+  SourceType, TemplateContext, UsageState,
 };
 use rspack_core::{ModuleInitFragments, RuntimeGlobals};
 use rspack_error::{
   miette::Diagnostic, IntoTWithDiagnosticArray, Result, RspackSeverity, TWithDiagnosticArray,
 };
+use rspack_util::ext::DynHash;
 use rustc_hash::FxHashSet;
 
 use crate::utils::{css_modules_exports_to_string, escape_css, LocalIdentOptions};
@@ -35,6 +37,9 @@ use crate::{
 
 static REGEX_IS_MODULES: LazyLock<Regex> =
   LazyLock::new(|| Regex::new(r"\.module(s)?\.[^.]+$").expect("Invalid regex"));
+
+static REGEX_IS_COMMENTS: LazyLock<Regex> =
+  LazyLock::new(|| Regex::new(r"/\*[\s\S]*?\*/").expect("Invalid regex"));
 
 pub(crate) static CSS_MODULE_SOURCE_TYPE_LIST: &[SourceType; 1] = &[SourceType::Css];
 
@@ -123,7 +128,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
       ModuleType::CssModule => css_module_lexer::Mode::Local,
       ModuleType::CssAuto
         if let Some(resource_path) = resource_path
-          && REGEX_IS_MODULES.is_match(resource_path.to_string_lossy().as_ref()) =>
+          && REGEX_IS_MODULES.is_match(resource_path.as_str()) =>
       {
         css_module_lexer::Mode::Local
       }
@@ -156,9 +161,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
           let request = normalize_url(request);
           let dep = Box::new(CssUrlDependency::new(
             request,
-            Some(ErrorSpan::new(range.start, range.end)),
-            range.start,
-            range.end,
+            RealDependencyLocation::new(range.start, range.end),
             matches!(kind, css_module_lexer::UrlRangeKind::Function),
           ));
           dependencies.push(dep.clone());
@@ -183,9 +186,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
           );
           dependencies.push(Box::new(CssImportDependency::new(
             request.to_string(),
-            Some(ErrorSpan::new(range.start, range.end)),
-            range.start,
-            range.end,
+            RealDependencyLocation::new(range.start, range.end),
           )));
         }
         css_module_lexer::Dependency::Replace { content, range } => presentational_dependencies
@@ -197,7 +198,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
           ))),
         css_module_lexer::Dependency::LocalClass { name, range, .. }
         | css_module_lexer::Dependency::LocalId { name, range, .. } => {
-          let (prefix, name) = name.split_at(1); // split '#' or '.'
+          let (_prefix, name) = name.split_at(1); // split '#' or '.'
           let local_ident = LocalIdentOptions::new(
             resource_data,
             self
@@ -225,9 +226,9 @@ impl ParserAndGenerator for CssParserAndGenerator {
             );
           }
           dependencies.push(Box::new(CssLocalIdentDependency::new(
-            format!("{prefix}{local_ident}"),
+            local_ident,
             convention_names,
-            range.start,
+            range.start + 1,
             range.end,
           )));
         }
@@ -277,8 +278,10 @@ impl ParserAndGenerator for CssParserAndGenerator {
             && from != "global"
           {
             let from = from.trim_matches(|c| c == '\'' || c == '"');
-            let dep =
-              CssComposeDependency::new(from.to_string(), ErrorSpan::new(range.start, range.end));
+            let dep = CssComposeDependency::new(
+              from.to_string(),
+              RealDependencyLocation::new(range.start, range.end),
+            );
             dep_id = Some(*dep.id());
             dependencies.push(Box::new(dep));
           }
@@ -315,6 +318,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
             .as_ref()
             .expect("should have local_ident_name for module_type css/auto or css/module");
           let convention_names = export_locals_convention(prop, convention);
+          let value = REGEX_IS_COMMENTS.replace_all(value, "");
           for name in convention_names.iter() {
             update_css_exports(
               exports,
@@ -434,7 +438,7 @@ impl ParserAndGenerator for CssParserAndGenerator {
                       escape_css(&v.ident, false)
                     )
                   } else {
-                    format!("{}:{}/", escaped, &v.ident)
+                    format!("{}:{}/", escaped, escape_css(&v.ident, false))
                   }
                 })
                 .collect::<Vec<_>>()
@@ -521,11 +525,6 @@ impl ParserAndGenerator for CssParserAndGenerator {
               left,
               right,
             )?
-          } else if generate_context.compilation.options.dev_server.hot {
-            format!(
-              "module.hot.accept();\n{}{}module.exports = {{}}{};\n",
-              ns_obj, left, right
-            )
           } else {
             format!("{}{}module.exports = {{}}{};\n", ns_obj, left, right)
           }
@@ -556,6 +555,17 @@ impl ParserAndGenerator for CssParserAndGenerator {
     _cg: &ChunkGraph,
   ) -> Option<Cow<'static, str>> {
     Some("Module Concatenation is not implemented for CssParserAndGenerator".into())
+  }
+
+  fn update_hash(
+    &self,
+    _module: &NormalModule,
+    hasher: &mut dyn std::hash::Hasher,
+    _compilation: &Compilation,
+    _runtime: Option<&RuntimeSpec>,
+  ) -> Result<()> {
+    self.es_module.dyn_hash(hasher);
+    Ok(())
   }
 }
 

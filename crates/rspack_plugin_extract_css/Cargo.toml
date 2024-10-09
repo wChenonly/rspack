@@ -7,6 +7,7 @@ repository  = "https://github.com/web-infra-dev/rspack"
 version     = "0.1.0"
 [dependencies]
 async-trait              = { workspace = true }
+cow-utils                = { workspace = true }
 regex                    = { workspace = true }
 rspack_collections       = { version = "0.1.0", path = "../rspack_collections" }
 rspack_core              = { version = "0.1.0", path = "../rspack_core" }
@@ -18,6 +19,7 @@ rspack_plugin_javascript = { version = "0.1.0", path = "../rspack_plugin_javascr
 rspack_plugin_runtime    = { version = "0.1.0", path = "../rspack_plugin_runtime" }
 rspack_util              = { version = "0.1.0", path = "../rspack_util" }
 rustc-hash               = { workspace = true }
+serde                    = { workspace = true, features = ["derive"] }
 serde_json               = { workspace = true }
 tracing                  = { workspace = true }
 ustr                     = { workspace = true }

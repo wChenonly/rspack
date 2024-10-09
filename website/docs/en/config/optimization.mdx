@@ -1,6 +1,6 @@
-import PropertyType from '../../../components/property-type.tsx';
+import PropertyType from '../../../components/PropertyType.tsx';
 
-import WebpackLicense from '@components/webpack-license';
+import WebpackLicense from '@components/WebpackLicense';
 
 <WebpackLicense from="https://webpack.js.org/configuration/optimization/" />
 
@@ -58,7 +58,7 @@ to false will disable this optimization.
 />
 
 Customize the minimizer. By default, [`rspack.SwcJsMinimizerRspackPlugin`](/plugins/rspack/swc-js-minimizer-rspack-plugin)
-and [`rspack.LightningCssMinimizerRspackPlugin`](/plugins/rspack/swc-css-minimizer-rspack-plugin) are used.
+and [`rspack.LightningCssMinimizerRspackPlugin`](/plugins/rspack/lightning-css-minimizer-rspack-plugin) are used.
 When `optimization.minimizer` is specified, the default minimizers will be disabled.
 
 ```js title=rspack.config.js
@@ -312,6 +312,18 @@ function f2() {
 
 Here we assign the `value` to `value2`. Both `value2` and `value` are accessed within the functions `f2` and `f1` respectively, but the functions are not called, hence `value2` and `value` are not actually used, thus the import of `value` can be removed.
 
+## optimization.concatenateModules
+
+<PropertyType
+  type="boolean"
+  defaultValueList={[
+    { defaultValue: 'true', mode: 'production' },
+    { defaultValue: 'false', mode: 'development' },
+  ]}
+/>
+
+Tells Rspack to find segments of the module graph which can be safely concatenated into a single module. Depends on [optimization.providedExports](#optimizationprovidedexports) and [optimization.usedExports](#optimizationusedexports). By default `optimization.concatenateModules` is enabled in `production` mode and disabled elsewise.
+
 ## optimization.nodeEnv
 
 <PropertyType
@@ -339,3 +351,15 @@ module.exports = {
 :::tip
 When [mode](/config/mode) is set to `'none'`, `optimization.nodeEnv` defaults to `false`.
 :::
+
+## optimization.emitOnErrors
+
+<PropertyType
+  type="boolean"
+  defaultValueList={[
+    { defaultValue: 'false', mode: 'production' },
+    { defaultValue: 'true', mode: 'development' },
+  ]}
+/>
+
+Use the `optimization.emitOnErrors` to emit assets whenever there are errors while compiling. This ensures that erroring assets are emitted. Critical errors are emitted into the generated code and will cause errors at runtime.

@@ -2,7 +2,7 @@ import { ApiMeta } from '@components/ApiMeta.tsx';
 
 # SwcJsMinimizerRspackPlugin
 
-<ApiMeta addedVersion={'0.3.3'} specific={['Rspack']} />
+<ApiMeta specific={['Rspack']} />
 
 This plugin can be used to compress JS assets. See [optimization.minimizer](/config/optimization#optimizationminimizer).
 
@@ -27,7 +27,8 @@ module.exports = {
     exclude?: AssetConditions;
     include?: AssetConditions;
     extractComments?: boolean | RegExp;
-    minimizerOptions: {
+    minimizerOptions?: {
+      minify?: boolean;
       compress?: TerserCompressOptions | boolean;
       mangle?: TerserMangleOptions | boolean;
       module?: boolean;

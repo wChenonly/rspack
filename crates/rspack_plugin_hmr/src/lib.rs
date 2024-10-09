@@ -1,6 +1,6 @@
-mod hot_module_replacement;
+#![feature(let_chains)]
 
-use std::hash::Hash;
+mod hot_module_replacement;
 
 use async_trait::async_trait;
 use hot_module_replacement::HotModuleReplacementRuntimeModule;
@@ -11,12 +11,18 @@ use rspack_core::{
   ApplyContext, AssetInfo, Chunk, ChunkKind, ChunkUkey, Compilation,
   CompilationAdditionalTreeRuntimeRequirements, CompilationAsset, CompilationParams,
   CompilationProcessAssets, CompilationRecords, CompilerCompilation, CompilerOptions,
-  DependencyType, LoaderContext, NormalModuleLoader, PathData, Plugin, PluginContext,
-  RunnerContext, RuntimeGlobals, RuntimeModuleExt, RuntimeSpec, SourceType,
+  DependencyType, LoaderContext, ModuleType, NormalModuleFactoryParser, NormalModuleLoader,
+  ParserAndGenerator, ParserOptions, PathData, Plugin, PluginContext, RunnerContext,
+  RuntimeGlobals, RuntimeModuleExt, RuntimeSpec,
 };
 use rspack_error::Result;
-use rspack_hash::RspackHash;
 use rspack_hook::{plugin, plugin_hook};
+use rspack_plugin_javascript::{
+  hot_module_replacement_plugin::{
+    ImportMetaHotReplacementParserPlugin, ModuleHotReplacementParserPlugin,
+  },
+  parser_and_generator::JavaScriptParserAndGenerator,
+};
 use rspack_util::infallible::ResultInfallibleExt as _;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -186,8 +192,8 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
       let mut hot_update_chunk = Chunk::new(None, ChunkKind::HotUpdate);
       hot_update_chunk.id = Some(chunk_id.to_string());
       hot_update_chunk.runtime = new_runtime.clone();
-      let mut chunk_hash = RspackHash::from(&compilation.options.output);
       let ukey = hot_update_chunk.ukey;
+
       if let Some(current_chunk) = current_chunk {
         current_chunk
           .groups
@@ -195,36 +201,30 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           .for_each(|group| hot_update_chunk.add_group(*group))
       }
 
-      for module_identifier in new_modules.iter() {
-        if let Some(module) = compilation
-          .get_module_graph()
-          .module_by_identifier(module_identifier)
-        {
-          module.hash(&mut chunk_hash);
-        }
-      }
-      let digest = chunk_hash.digest(&compilation.options.output.hash_digest);
-      hot_update_chunk
-        .content_hash
-        .insert(SourceType::JavaScript, digest.clone());
-      hot_update_chunk
-        .content_hash
-        .insert(SourceType::Css, digest);
-
+      // In webpack, there is no need to add HotUpdateChunk to compilation.chunks,
+      // because HotUpdateChunk is no longer used after generating the manifest.
+      //
+      // However, in Rspack, we need to add HotUpdateChunk to compilation.chunk_by_ukey
+      // because during the manifest generation, HotUpdateChunk is passed to various plugins via the ukey.
+      // The plugins then use the ukey to query compilation.chunk_by_ukey to get the HotUpdateChunk instance.
+      // Therefore, in Rspack, after the manifest is generated, we need to manually remove the HotUpdateChunk from compilation.chunks.
       compilation.chunk_by_ukey.add(hot_update_chunk);
-      compilation.chunk_graph.add_chunk(ukey);
 
-      for module_identifier in new_modules.iter() {
+      // In webpack, compilation.chunkGraph uses a WeakMap to maintain the relationship between Chunks and Modules.
+      // This means the lifecycle of these data is tied to the Chunk, and they are garbage-collected when the Chunk is.
+      //
+      // In Rspack, we need to manually clean up the data in compilation.chunk_graph after HotUpdateChunk is used.
+      compilation.chunk_graph.add_chunk(ukey);
+      for module_identifier in &new_modules {
         compilation
           .chunk_graph
           .connect_chunk_and_module(ukey, *module_identifier);
       }
-
-      for runtime_module in new_runtime_modules {
-        compilation.code_generated_modules.insert(runtime_module);
+      for runtime_module in &new_runtime_modules {
+        compilation.code_generated_modules.insert(*runtime_module);
         compilation
           .chunk_graph
-          .connect_chunk_and_runtime_module(ukey, runtime_module);
+          .connect_chunk_and_runtime_module(ukey, *runtime_module);
       }
 
       let mut manifest = Vec::new();
@@ -236,17 +236,31 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
         .call(compilation, &ukey, &mut manifest, &mut diagnostics)
         .await?;
 
+      // Manually clean up ChunkGraph and chunks
+      for module_identifier in new_modules {
+        compilation
+          .chunk_graph
+          .disconnect_chunk_and_module(&ukey, module_identifier);
+      }
+      for runtime_module in new_runtime_modules {
+        compilation
+          .chunk_graph
+          .disconnect_chunk_and_runtime_module(&ukey, &runtime_module);
+      }
+      compilation.chunk_graph.remove_chunk(&ukey);
+      #[allow(clippy::unwrap_used)]
+      let hot_update_chunk = compilation.chunk_by_ukey.remove(&ukey).unwrap();
+
       compilation.extend_diagnostics(diagnostics);
 
       for entry in manifest {
         let filename = if entry.has_filename() {
           entry.filename().to_string()
         } else {
-          let chunk = compilation.chunk_by_ukey.expect_get(&ukey);
           compilation
             .get_path(
               &compilation.options.output.hot_update_chunk_filename,
-              PathData::default().chunk(chunk).hash_optional(
+              PathData::default().chunk(&hot_update_chunk).hash_optional(
                 old_hash
                   .as_ref()
                   .map(|hash| hash.rendered(compilation.options.output.hash_digest_length)),
@@ -259,7 +273,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           // Reset version to make hmr generated assets always emit
           entry
             .info
-            .with_hot_module_replacement(true)
+            .with_hot_module_replacement(Some(true))
             .with_version(Default::default()),
         );
         if let Some(current_chunk_ukey) = current_chunk_ukey {
@@ -312,7 +326,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
       filename,
       CompilationAsset::new(
         Some(
-          RawSource::Source(
+          RawSource::from(
             serde_json::json!({
               "c": c,
               "r": r,
@@ -322,7 +336,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
           )
           .boxed(),
         ),
-        AssetInfo::default().with_hot_module_replacement(true),
+        AssetInfo::default().with_hot_module_replacement(Some(true)),
       ),
     );
   }
@@ -333,6 +347,26 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
 #[plugin_hook(NormalModuleLoader for HotModuleReplacementPlugin)]
 fn normal_module_loader(&self, context: &mut LoaderContext<RunnerContext>) -> Result<()> {
   context.hot = true;
+  Ok(())
+}
+
+#[plugin_hook(NormalModuleFactoryParser for HotModuleReplacementPlugin)]
+fn normal_module_factory_parser(
+  &self,
+  module_type: &ModuleType,
+  parser: &mut dyn ParserAndGenerator,
+  _parser_options: Option<&ParserOptions>,
+) -> Result<()> {
+  if let Some(parser) = parser.downcast_mut::<JavaScriptParserAndGenerator>() {
+    if module_type.is_js_auto() {
+      parser.add_parser_plugin(Box::new(ModuleHotReplacementParserPlugin::new()));
+      parser.add_parser_plugin(Box::new(ImportMetaHotReplacementParserPlugin::new()));
+    } else if module_type.is_js_dynamic() {
+      parser.add_parser_plugin(Box::new(ModuleHotReplacementParserPlugin::new()));
+    } else if module_type.is_js_esm() {
+      parser.add_parser_plugin(Box::new(ImportMetaHotReplacementParserPlugin::new()));
+    }
+  }
   Ok(())
 }
 
@@ -363,12 +397,7 @@ impl Plugin for HotModuleReplacementPlugin {
     "rspack.HotModuleReplacementPlugin"
   }
 
-  fn apply(
-    &self,
-    ctx: PluginContext<&mut ApplyContext>,
-    options: &mut CompilerOptions,
-  ) -> Result<()> {
-    options.dev_server.hot = true;
+  fn apply(&self, ctx: PluginContext<&mut ApplyContext>, _options: &CompilerOptions) -> Result<()> {
     ctx
       .context
       .compiler_hooks
@@ -384,6 +413,11 @@ impl Plugin for HotModuleReplacementPlugin {
       .normal_module_hooks
       .loader
       .tap(normal_module_loader::new(self));
+    ctx
+      .context
+      .normal_module_factory_hooks
+      .parser
+      .tap(normal_module_factory_parser::new(self));
     ctx
       .context
       .compilation_hooks

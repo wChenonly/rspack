@@ -1,7 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "timezone": "Asia/Shanghai",
-  "extends": [":dependencyDashboard"],
+  "extends": [
+    ":dependencyDashboard"
+  ],
   "schedule": [
     "before 8am on wednesday"
   ],
@@ -116,15 +118,17 @@
         "devDependencies"
       ],
       "excludePackagePrefixes": [
-        "webpack",
-        "sass"
+        "webpack"
       ],
       "excludePackageNames": [
-        "@playwright/test",
-        "react",
-        "react-dom",
         "typescript",
-        "pnpm"
+        "pnpm",
+        "@playwright/test"
+      ],
+      // bump major in a separate PR
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
       ]
     },
     {
@@ -135,22 +139,11 @@
       "matchDepTypes": [
         "dependencies"
       ],
-      "enabled": false
-    },
-    {
-      "groupName": "npm ignored dependencies",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchPackageNames": [
-        "@playwright/test",
-        "react",
-        "react-dom",
-        "typescript",
-        "pnpm",
-        "sass"
-      ],
-      "enabled": false
+      // bump major in a separate PR
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ]
     },
     {
       "groupName": "webpack",
@@ -161,6 +154,15 @@
         "webpack"
       ],
       "enabled": false
+    },
+    {
+      "groupName": "playwright",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackagePrefixes": [
+        "@playwright/test"
+      ]
     }
   ]
 }

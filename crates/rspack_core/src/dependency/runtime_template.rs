@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use rustc_hash::FxHashSet as HashSet;
 use serde_json::json;
-use sugar_path::SugarPath;
 use swc_core::ecma::atoms::Atom;
 
 use crate::{
@@ -230,7 +229,7 @@ pub fn export_from_import(
     let comment = if *used_name != export_name {
       to_normal_comment(&property_access(&export_name, 0))
     } else {
-      "".to_string()
+      String::new()
     };
     let property = property_access(&*used_name, 0);
     let access = format!("{import_var}{comment}{property}");
@@ -374,7 +373,7 @@ pub fn import_statement(
     .module_identifier_by_dependency_id(id)
     .is_none()
   {
-    return (missing_module_statement(request), "".to_string());
+    return (missing_module_statement(request), String::new());
   };
 
   let module_id_expr = module_id(compilation, id, request, false);
@@ -401,7 +400,7 @@ pub fn import_statement(
       ),
     );
   }
-  (import_content, "".to_string())
+  (import_content, String::new())
 }
 
 pub fn module_namespace_promise(
@@ -473,14 +472,12 @@ pub fn module_namespace_promise(
         fake_type |= FakeNamespaceObjectMode::MERGE_PROPERTIES;
       }
       runtime_requirements.insert(RuntimeGlobals::CREATE_FAKE_NAMESPACE_OBJECT);
-      if matches!(
-        compilation.get_module_graph().is_async(
-          compilation
-            .get_module_graph()
-            .module_identifier_by_dependency_id(dep_id)
-            .expect("should have module")
-        ),
-        Some(true)
+      if ModuleGraph::is_async(
+        compilation,
+        compilation
+          .get_module_graph()
+          .module_identifier_by_dependency_id(dep_id)
+          .expect("should have module"),
       ) {
         if let Some(header) = header {
           appending = format!(
@@ -540,7 +537,7 @@ pub fn block_promise(
         message: Some(message),
       },
     );
-    return format!("Promise.resolve({comment})");
+    return format!("Promise.resolve({})", comment.trim());
   };
   let chunk_group = compilation
     .chunk_graph
@@ -554,7 +551,7 @@ pub fn block_promise(
         message: Some(message),
       },
     );
-    return format!("Promise.resolve({comment})");
+    return format!("Promise.resolve({})", comment.trim());
   };
   if chunk_group.chunks.is_empty() {
     let comment = comment(
@@ -565,7 +562,7 @@ pub fn block_promise(
         message: Some(message),
       },
     );
-    return format!("Promise.resolve({comment})");
+    return format!("Promise.resolve({})", comment.trim());
   }
   let mg = compilation.get_module_graph();
   let block = mg.block_by_id_expect(block);
@@ -634,7 +631,7 @@ pub fn block_promise(
         .join(", ")
     )
   } else {
-    format!("Promise.resolve({comment})")
+    format!("Promise.resolve({})", comment.trim())
   }
 }
 

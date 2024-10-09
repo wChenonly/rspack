@@ -107,7 +107,7 @@ fn render_chunk(
   let mut source = ConcatSource::default();
 
   if matches!(chunk.kind, ChunkKind::HotUpdate) {
-    source.add(RawSource::Source(format!(
+    source.add(RawSource::from(format!(
       "{}[{}]('{}', ",
       global_object,
       serde_json::to_string(hot_update_global).map_err(|e| error!(e.to_string()))?,
@@ -115,10 +115,10 @@ fn render_chunk(
     )));
     source.add(render_source.source.clone());
     if has_runtime_modules {
-      source.add(RawSource::Source(",".to_string()));
+      source.add(RawSource::from(",".to_string()));
       source.add(render_chunk_runtime_modules(compilation, chunk_ukey)?);
     }
-    source.add(RawSource::Source(")".to_string()));
+    source.add(RawSource::from(")".to_string()));
   } else {
     let chunk_loading_global = &compilation.options.output.chunk_loading_global;
 
@@ -180,11 +180,7 @@ impl Plugin for ArrayPushCallbackChunkFormatPlugin {
     PLUGIN_NAME
   }
 
-  fn apply(
-    &self,
-    ctx: PluginContext<&mut ApplyContext>,
-    _options: &mut CompilerOptions,
-  ) -> Result<()> {
+  fn apply(&self, ctx: PluginContext<&mut ApplyContext>, _options: &CompilerOptions) -> Result<()> {
     ctx
       .context
       .compiler_hooks

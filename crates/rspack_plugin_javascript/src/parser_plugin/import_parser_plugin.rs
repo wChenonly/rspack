@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use rspack_core::{
-  AsyncDependenciesBlock, DependencyLocation, DynamicImportMode, ErrorSpan, GroupOptions,
-  ImportAttributes,
+  AsyncDependenciesBlock, ContextDependency, DependencyLocation, DynamicImportMode, GroupOptions,
+  ImportAttributes, RealDependencyLocation,
 };
 use rspack_core::{ChunkGroupOptions, DynamicImportFetchPriority};
 use rspack_core::{ContextNameSpaceObject, ContextOptions, DependencyCategory, SpanExt};
@@ -31,10 +31,15 @@ impl JavascriptParserPlugin for ImportParserPlugin {
       return None;
     }
     let dynamic_import_mode = parser.javascript_options.dynamic_import_mode;
-    let dynamic_import_preload = parser.javascript_options.dynamic_import_preload.get_order();
+    let dynamic_import_preload = parser
+      .javascript_options
+      .dynamic_import_preload
+      .expect("should have dynamic_import_preload")
+      .get_order();
     let dynamic_import_prefetch = parser
       .javascript_options
       .dynamic_import_prefetch
+      .expect("should have dynamic_import_prefetch")
       .get_order();
     let dynamic_import_fetch_priority = parser.javascript_options.dynamic_import_fetch_priority;
 
@@ -55,7 +60,7 @@ impl JavascriptParserPlugin for ImportParserPlugin {
     let mode = magic_comment_options
       .get_webpack_mode()
       .map(|x| DynamicImportMode::from(x.as_str()))
-      .unwrap_or(dynamic_import_mode);
+      .unwrap_or(dynamic_import_mode.expect("should have dynamic_import_mode"));
     let chunk_name = magic_comment_options
       .get_webpack_chunk_name()
       .map(|x| x.to_owned());
@@ -107,13 +112,10 @@ impl JavascriptParserPlugin for ImportParserPlugin {
     let param = parser.evaluate_expression(dyn_imported.expr.as_ref());
 
     if param.is_string() {
-      let span = ErrorSpan::from(node.span);
       if matches!(mode, DynamicImportMode::Eager) {
         let dep = ImportEagerDependency::new(
-          node.span.real_lo(),
-          node.span.real_hi(),
           param.string().as_str().into(),
-          Some(span),
+          node.span.into(),
           exports,
           attributes,
         );
@@ -121,19 +123,15 @@ impl JavascriptParserPlugin for ImportParserPlugin {
         return Some(true);
       }
       let dep = Box::new(ImportDependency::new(
-        node.span.real_lo(),
-        node.span.real_hi(),
         param.string().as_str().into(),
-        Some(span),
+        node.span.into(),
         exports,
         attributes,
       ));
       let mut block = AsyncDependenciesBlock::new(
         *parser.module_identifier,
-        Some(DependencyLocation::new(
-          span.start,
-          span.end,
-          Some(parser.source_map.clone()),
+        Some(DependencyLocation::Real(
+          Into::<RealDependencyLocation>::into(node.span).with_source(parser.source_map.clone()),
         )),
         None,
         vec![dep],
@@ -154,43 +152,42 @@ impl JavascriptParserPlugin for ImportParserPlugin {
         query,
         fragment,
         replaces,
+        critical,
       } = create_context_dependency(&param, &dyn_imported.expr, parser);
       let reg_exp = context_reg_exp(&reg, "", Some(dyn_imported.span().into()), parser);
-      parser
-        .dependencies
-        .push(Box::new(ImportContextDependency::new(
-          import_call.span.real_lo(),
-          import_call.span.real_hi(),
-          node.span.real_hi(),
-          ContextOptions {
-            mode: mode.into(),
-            recursive: true,
-            reg_exp,
-            include,
-            exclude,
-            category: DependencyCategory::Esm,
-            request: format!("{}{}{}", context.clone(), query, fragment),
-            context,
-            namespace_object: if parser.build_meta.strict_harmony_module {
-              ContextNameSpaceObject::Strict
-            } else {
-              ContextNameSpaceObject::Bool(true)
-            },
-            group_options: Some(GroupOptions::ChunkGroup(ChunkGroupOptions::new(
-              chunk_name,
-              chunk_preload,
-              chunk_prefetch,
-              fetch_priority,
-            ))),
-            replaces,
-            start: node.span().real_lo(),
-            end: node.span().real_hi(),
-            referenced_exports: exports,
-            attributes,
+      let mut dep = ImportContextDependency::new(
+        ContextOptions {
+          mode: mode.into(),
+          recursive: true,
+          reg_exp,
+          include,
+          exclude,
+          category: DependencyCategory::Esm,
+          request: format!("{}{}{}", context.clone(), query, fragment),
+          context,
+          namespace_object: if parser.build_meta.strict_harmony_module {
+            ContextNameSpaceObject::Strict
+          } else {
+            ContextNameSpaceObject::Bool(true)
           },
-          Some(node.span.into()),
-          parser.in_try,
-        )));
+          group_options: Some(GroupOptions::ChunkGroup(ChunkGroupOptions::new(
+            chunk_name,
+            chunk_preload,
+            chunk_prefetch,
+            fetch_priority,
+          ))),
+          replaces,
+          start: node.span().real_lo(),
+          end: node.span().real_hi(),
+          referenced_exports: exports,
+          attributes,
+        },
+        node.span().into(),
+        import_call.span.into(),
+        parser.in_try,
+      );
+      *dep.critical_mut() = critical;
+      parser.dependencies.push(Box::new(dep));
       Some(true)
     }
   }

@@ -9,8 +9,9 @@ version     = "0.1.0"
 anymap = { workspace = true }
 async-trait = { workspace = true }
 bitflags = { workspace = true }
+cow-utils = { workspace = true }
 dashmap = { workspace = true }
-fast-glob = "0.3.2"
+fast-glob = "0.4.0"
 indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
@@ -19,7 +20,7 @@ num-bigint = { version = "0.4.4" }
 once_cell = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
-ropey = "1.6.1"
+ropey = { workspace = true }
 rspack_ast = { version = "0.1.0", path = "../rspack_ast" }
 rspack_collections = { version = "0.1.0", path = "../rspack_collections" }
 rspack_core = { version = "0.1.0", path = "../rspack_core" }
@@ -27,6 +28,7 @@ rspack_error = { version = "0.1.0", path = "../rspack_error" }
 rspack_hash = { version = "0.1.0", path = "../rspack_hash" }
 rspack_hook = { version = "0.1.0", path = "../rspack_hook" }
 rspack_ids = { version = "0.1.0", path = "../rspack_ids/" }
+rspack_paths = { version = "0.1.0", path = "../rspack_paths" }
 rspack_regex = { version = "0.1.0", path = "../rspack_regex" }
 rspack_util = { version = "0.1.0", path = "../rspack_util" }
 rustc-hash = { workspace = true }

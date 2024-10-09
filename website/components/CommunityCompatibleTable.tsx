@@ -106,7 +106,8 @@ export const CommunityPluginCompatibleTable: React.FC = () => {
     {
       name: 'eslint-webpack-plugin',
       url: 'https://github.com/webpack-contrib/eslint-webpack-plugin',
-      status: CompatibleStatus.Compatible,
+      status: CompatibleStatus.Alternative,
+      description: i18n[lang]['eslint-webpack-plugin-desc'],
     },
     {
       name: 'fork-ts-checker-webpack-plugin',
@@ -236,13 +237,13 @@ export const CommunityPluginCompatibleTable: React.FC = () => {
       name: 'webpackbar',
       url: 'https://www.npmjs.com/package/webpackbar',
       status: CompatibleStatus.NotCompatible,
-      description: i18n[lang]['progress-plugin-function-un-support-desc'],
+      description: i18n[lang]['progress-plugin-desc'],
     },
     {
       name: 'progress-bar-webpack-plugin',
       url: 'https://www.npmjs.com/package/progress-bar-webpack-plugin',
       status: CompatibleStatus.NotCompatible,
-      description: i18n[lang]['progress-plugin-function-un-support-desc'],
+      description: i18n[lang]['progress-plugin-desc'],
     },
     {
       name: 'image-minimizer-webpack-plugin',
@@ -266,6 +267,78 @@ export const CommunityPluginCompatibleTable: React.FC = () => {
       url: 'https://github.com/arcanis/pnp-webpack-plugin',
       status: CompatibleStatus.NotCompatible,
       description: i18n[lang]['resolve-plugin-un-support-desc'],
+    },
+    {
+      name: '@ngtools/webpack',
+      url: 'https://www.npmjs.com/package/@ngtools/webpack',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: 'eslint-import-resolver-webpack',
+      url: 'https://www.npmjs.com/package/eslint-import-resolver-webpack',
+      status: CompatibleStatus.Compatible,
+    },
+    {
+      name: '@storybook/react-docgen-typescript-plugin',
+      url: 'https://github.com/hipstersmoothie/react-docgen-typescript-plugin',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: 'assets-webpack-plugin',
+      url: 'https://github.com/ztoben/assets-webpack-plugin',
+      status: CompatibleStatus.Compatible,
+    },
+    {
+      name: 'last-call-webpack-plugin',
+      url: 'https://github.com/NMFR/last-call-webpack-plugin',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: '@soda/friendly-errors-webpack-plugin',
+      url: 'https://github.com/sodatea/friendly-errors-webpack-plugin',
+      status: CompatibleStatus.Compatible,
+    },
+    {
+      name: 'webpack-assets-manifest',
+      url: 'https://github.com/webdeveric/webpack-assets-manifest',
+      status: CompatibleStatus.Compatible,
+    },
+    {
+      name: 'git-revision-webpack-plugin',
+      url: 'https://www.npmjs.com/package/git-revision-webpack-plugin',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: 'filemanager-webpack-plugin',
+      url: 'https://github.com/gregnb/filemanager-webpack-plugin',
+      status: CompatibleStatus.Compatible,
+    },
+    {
+      name: '@cypress/webpack-preprocessor',
+      url: 'https://github.com/cypress-io/cypress',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: '@intlify/unplugin-vue-i18n',
+      url: 'https://github.com/intlify/bundle-tools',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: 'add-asset-html-webpack-plugin',
+      url: 'https://github.com/SimenB/add-asset-html-webpack-plugin',
+      status: CompatibleStatus.PartiallyCompatible,
+      description: i18n[lang]['needs-html-webpack-plugin'],
+    },
+    {
+      name: 'webpack-remove-empty-scripts',
+      url: 'https://github.com/webdiscus/webpack-remove-empty-scripts',
+      status: CompatibleStatus.NotCompatible,
+    },
+    {
+      name: 'html-webpack-harddisk-plugin',
+      url: 'https://github.com/jantimon/html-webpack-harddisk-plugin',
+      status: CompatibleStatus.PartiallyCompatible,
+      description: i18n[lang]['needs-html-webpack-plugin'],
     },
     {
       name: 'webpack-virtual-modules',

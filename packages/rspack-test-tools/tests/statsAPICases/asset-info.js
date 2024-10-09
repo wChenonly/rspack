@@ -48,14 +48,11 @@ module.exports = {
 		    "info": Object {
 		      "chunkhash": Array [],
 		      "contenthash": Array [],
-		      "development": false,
 		      "fullhash": Array [
 		        "89a353e9c515885abd8e",
 		      ],
-		      "hotModuleReplacement": false,
 		      "immutable": true,
 		      "isOverSizeLimit": false,
-		      "minimized": false,
 		      "related": Object {},
 		      "sourceFilename": "fixtures/asset/image.png",
 		    },
@@ -82,13 +79,9 @@ module.exports = {
 		    "info": Object {
 		      "chunkhash": Array [],
 		      "contenthash": Array [],
-		      "development": false,
 		      "fullhash": Array [],
-		      "hotModuleReplacement": false,
-		      "immutable": false,
 		      "isOverSizeLimit": false,
 		      "javascriptModule": false,
-		      "minimized": false,
 		      "related": Object {
 		        "sourceMap": Array [
 		          "main.js.map",
@@ -98,7 +91,7 @@ module.exports = {
 		    "isOverSizeLimit": false,
 		    "name": "main.js",
 		    "related": Array [],
-		    "size": 2425,
+		    "size": 2763,
 		    "type": "asset",
 		  },
 		]

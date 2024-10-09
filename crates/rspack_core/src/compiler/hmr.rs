@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rspack_collections::{Identifier, IdentifierMap};
 use rspack_error::Result;
-use rspack_fs::AsyncWritableFileSystem;
 use rspack_hash::RspackHashDigest;
 use rspack_sources::Source;
 use rustc_hash::FxHashSet as HashSet;
@@ -12,10 +11,7 @@ use crate::{
   fast_set, get_chunk_from_ukey, ChunkKind, Compilation, Compiler, ModuleExecutor, RuntimeSpec,
 };
 
-impl<T> Compiler<T>
-where
-  T: AsyncWritableFileSystem + Send + Sync,
-{
+impl Compiler {
   pub async fn rebuild(
     &mut self,
     changed_files: std::collections::HashSet<String>,
@@ -27,14 +23,13 @@ where
     let (old_all_modules, old_runtime_modules) = collect_changed_modules(old.compilation)?;
     // TODO: should use `records`
 
-    let mut all_old_runtime: RuntimeSpec = Default::default();
-    for entry_ukey in old.compilation.get_chunk_graph_entries() {
-      if let Some(runtime) = get_chunk_from_ukey(&entry_ukey, &old.compilation.chunk_by_ukey)
-        .map(|entry_chunk| entry_chunk.runtime.clone())
-      {
-        all_old_runtime.extend(runtime);
-      }
-    }
+    let all_old_runtime = old
+      .compilation
+      .get_chunk_graph_entries()
+      .into_iter()
+      .filter_map(|entry_ukey| get_chunk_from_ukey(&entry_ukey, &old.compilation.chunk_by_ukey))
+      .flat_map(|entry_chunk| entry_chunk.runtime.clone())
+      .collect();
 
     let mut old_chunks: Vec<(String, RuntimeSpec)> = vec![];
     for (_, chunk) in old.compilation.chunk_by_ukey.iter() {
@@ -70,23 +65,22 @@ where
       let mut new_compilation = Compilation::new(
         self.options.clone(),
         self.plugin_driver.clone(),
+        self.buildtime_plugin_driver.clone(),
         self.resolver_factory.clone(),
         self.loader_resolver_factory.clone(),
         Some(records),
         self.old_cache.clone(),
+        self.unaffected_modules_cache.clone(),
         Some(ModuleExecutor::default()),
         modified_files,
         removed_files,
+        self.input_filesystem.clone(),
       );
-
-      if let Some(state) = self.options.get_incremental_rebuild_make_state() {
-        state.set_is_not_first();
-      }
 
       new_compilation.hot_index = self.compilation.hot_index + 1;
 
-      let is_incremental_rebuild_make = self.options.is_incremental_rebuild_make_enabled();
-      if is_incremental_rebuild_make {
+      let incremental = self.options.incremental();
+      if incremental.make_enabled() {
         // copy field from old compilation
         // make stage used
         self
@@ -99,6 +93,20 @@ where
 
         // reuse module executor
         new_compilation.module_executor = std::mem::take(&mut self.compilation.module_executor);
+      }
+      if incremental.infer_async_modules_enabled() {
+        new_compilation.async_modules = std::mem::take(&mut self.compilation.async_modules);
+      }
+      if incremental.module_hashes_enabled() {
+        new_compilation.cgm_hash_results = std::mem::take(&mut self.compilation.cgm_hash_results);
+      }
+      if incremental.module_codegen_enabled() {
+        new_compilation.code_generation_results =
+          std::mem::take(&mut self.compilation.code_generation_results);
+      }
+      if incremental.module_runtime_requirements_enabled() {
+        new_compilation.cgm_runtime_requirements_results =
+          std::mem::take(&mut self.compilation.cgm_runtime_requirements_results);
       }
 
       // FOR BINDING SAFETY:

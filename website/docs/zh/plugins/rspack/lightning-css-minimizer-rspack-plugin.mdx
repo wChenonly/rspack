@@ -2,7 +2,7 @@ import { ApiMeta } from '@components/ApiMeta.tsx';
 
 # LightningCssMinimizerRspackPlugin
 
-<ApiMeta addedVersion={'0.7.4'} specific={['Rspack']} />
+<ApiMeta specific={['Rspack']} />
 
 此插件使用 [lightningcss](https://lightningcss.dev/) 来压缩 CSS 产物。参见 [optimization.minimizer](/config/optimization#optimizationminimizer)。
 
@@ -73,7 +73,7 @@ document.body.className = styles.a;
 
 传给 Lightning CSS 进行压缩的配置。
 
-以下是支持的配置。详细的解释请查看 [lightningcss 文档](https://lightningcss.dev/transpilation.html)
+以下是支持的配置，其中 `targets` 配置为 browserslist 查询字符串，其他配置的详细解释请查看 [lightningcss 文档](https://lightningcss.dev/transpilation.html)
 
 :::info
 
@@ -86,7 +86,7 @@ document.body.className = styles.a;
 ```ts
 type LightningCssMinimizerOptions = {
   errorRecovery?: boolean;
-  targets?: Targets | string[] | string;
+  targets?: string[] | string;
   include?: LightningcssFeatureOptions;
   exclude?: LightningcssFeatureOptions;
   draft?: Drafts;

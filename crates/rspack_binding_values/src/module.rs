@@ -1,9 +1,17 @@
+use std::{cell::RefCell, sync::Arc};
+
 use napi_derive::napi;
+use rspack_collections::Identifier;
 use rspack_core::{
-  AsyncDependenciesBlock, AsyncDependenciesBlockIdentifier, Compilation, CompilerModuleContext,
-  DependenciesBlock, Module, ModuleGraph, ModuleIdentifier,
+  AsyncDependenciesBlock, AsyncDependenciesBlockIdentifier, Compilation, CompilationId,
+  CompilerModuleContext, DependenciesBlock, Module, ModuleGraph, ModuleIdentifier,
+  RuntimeModuleStage, SourceType,
 };
-use rspack_napi::napi::bindgen_prelude::*;
+use rspack_napi::{napi::bindgen_prelude::*, threadsafe_function::ThreadsafeFunction, Ref};
+use rspack_plugin_runtime::RuntimeModuleFromJs;
+use rspack_util::source_map::SourceMapKind;
+use rustc_hash::FxHashMap as HashMap;
+use sys::napi_env;
 
 use super::{JsCompatSource, ToJsCompatSource};
 use crate::{DependencyDTO, JsChunk, JsCodegenerationResults};
@@ -209,6 +217,101 @@ impl ModuleDTO {
       .map(|block_id| DependenciesBlockDTO::new(block_id, self.compilation))
       .collect::<Vec<_>>()
   }
+
+  #[napi]
+  pub fn size(&self, ty: Option<String>) -> f64 {
+    let module = self.module();
+    let ty = ty.map(|s| SourceType::from(s.as_str()));
+    module.size(ty.as_ref(), self.compilation)
+  }
+}
+
+type ModuleInstanceRefs = HashMap<Identifier, (Ref, napi_env)>;
+
+#[derive(Default)]
+struct ModuleInstanceRefsByCompilationId(RefCell<HashMap<CompilationId, ModuleInstanceRefs>>);
+
+impl Drop for ModuleInstanceRefsByCompilationId {
+  fn drop(&mut self) {
+    let mut refs_by_compilation_id = self.0.borrow_mut();
+    for (_, mut refs) in refs_by_compilation_id.drain() {
+      for (_, (mut r, env)) in refs.drain() {
+        let _ = r.unref(env);
+      }
+    }
+  }
+}
+
+thread_local! {
+  static MODULE_INSTANCE_REFS: ModuleInstanceRefsByCompilationId = Default::default();
+}
+
+// The difference between ModuleDTOWrapper and ModuleDTO is:
+// ModuleDTOWrapper maintains a cache to ensure that the corresponding instance of the same Module is unique on the JS side.
+//
+// This means that when transferring a ModuleDTO from Rust to JS, you must use ModuleDTOWrapper instead.
+pub struct ModuleDTOWrapper {
+  pub module_id: ModuleIdentifier,
+  pub compilation: &'static Compilation,
+}
+
+impl ModuleDTOWrapper {
+  pub fn new(module_id: ModuleIdentifier, compilation: &Compilation) -> Self {
+    // SAFETY:
+    // 1. `Compiler` is stored on the heap and pinned in binding crate.
+    // 2. `Compilation` outlives `JsCompilation` and `Compiler` outlives `Compilation`.
+    // 3. `JsCompilation` was replaced everytime a new `Compilation` was created before getting accessed.
+    let compilation = unsafe {
+      std::mem::transmute::<&rspack_core::Compilation, &'static rspack_core::Compilation>(
+        compilation,
+      )
+    };
+    Self {
+      module_id,
+      compilation,
+    }
+  }
+
+  pub fn cleanup(compilation_id: CompilationId) {
+    MODULE_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.0.borrow_mut();
+      if let Some(mut refs) = refs_by_compilation_id.remove(&compilation_id) {
+        for (_, (mut r, env)) in refs.drain() {
+          let _ = r.unref(env);
+        }
+      }
+    });
+  }
+}
+
+impl ToNapiValue for ModuleDTOWrapper {
+  unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
+    MODULE_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.0.borrow_mut();
+      let entry = refs_by_compilation_id.entry(val.compilation.id());
+      let refs = match entry {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          let refs = HashMap::default();
+          entry.insert(refs)
+        }
+      };
+      match refs.entry(val.module_id) {
+        std::collections::hash_map::Entry::Occupied(entry) => {
+          let r = entry.get();
+          ToNapiValue::to_napi_value(env, &r.0)
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          let instance =
+            ModuleDTO::new(val.module_id, val.compilation).into_instance(Env::from_raw(env))?;
+          let napi_value = ToNapiValue::to_napi_value(env, instance)?;
+          let r = Ref::new(env, napi_value, 1)?;
+          let r = entry.insert((r, env));
+          ToNapiValue::to_napi_value(env, &r.0)
+        }
+      }
+    })
+  }
 }
 
 #[derive(Default)]
@@ -363,4 +466,31 @@ pub struct JsRuntimeModule {
 pub struct JsRuntimeModuleArg {
   pub module: JsRuntimeModule,
   pub chunk: JsChunk,
+}
+
+type GenerateFn = ThreadsafeFunction<(), String>;
+
+#[napi(object, object_to_js = false)]
+pub struct JsAddingRuntimeModule {
+  pub name: String,
+  #[napi(ts_type = "() => String")]
+  pub generator: GenerateFn,
+  pub cacheable: bool,
+  pub isolate: bool,
+  pub stage: u32,
+}
+
+impl From<JsAddingRuntimeModule> for RuntimeModuleFromJs {
+  fn from(value: JsAddingRuntimeModule) -> Self {
+    Self {
+      name: value.name,
+      cacheable: value.cacheable,
+      isolate: value.isolate,
+      stage: RuntimeModuleStage::from(value.stage),
+      generator: Arc::new(move || value.generator.blocking_call_with_sync(())),
+      source_map_kind: SourceMapKind::empty(),
+      custom_source: None,
+      cached_generated_code: Default::default(),
+    }
+  }
 }
