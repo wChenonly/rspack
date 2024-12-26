@@ -1,30 +1,37 @@
+use rspack_cacheable::{cacheable, cacheable_dyn, with::Skip};
 use rspack_core::{
   AffectType, AsContextDependency, AsModuleDependency, Compilation, Dependency, DependencyId,
-  DependencyTemplate, RealDependencyLocation, RuntimeSpec, TemplateContext, TemplateReplaceSource,
+  DependencyLocation, DependencyRange, DependencyTemplate, RuntimeSpec, SharedSourceMap,
+  TemplateContext, TemplateReplaceSource,
 };
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct RequireResolveHeaderDependency {
   id: DependencyId,
-  range: RealDependencyLocation,
+  range: DependencyRange,
+  #[cacheable(with=Skip)]
+  source_map: Option<SharedSourceMap>,
 }
 
 impl RequireResolveHeaderDependency {
-  pub fn new(range: RealDependencyLocation) -> Self {
+  pub fn new(range: DependencyRange, source_map: Option<SharedSourceMap>) -> Self {
     Self {
       id: DependencyId::new(),
       range,
+      source_map,
     }
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for RequireResolveHeaderDependency {
   fn id(&self) -> &DependencyId {
     &self.id
   }
 
-  fn loc(&self) -> Option<String> {
-    Some(self.range.to_string())
+  fn loc(&self) -> Option<DependencyLocation> {
+    self.range.to_loc(self.source_map.as_ref())
   }
 
   fn could_affect_referencing_module(&self) -> AffectType {
@@ -35,6 +42,7 @@ impl Dependency for RequireResolveHeaderDependency {
 impl AsModuleDependency for RequireResolveHeaderDependency {}
 impl AsContextDependency for RequireResolveHeaderDependency {}
 
+#[cacheable_dyn]
 impl DependencyTemplate for RequireResolveHeaderDependency {
   fn apply(
     &self,

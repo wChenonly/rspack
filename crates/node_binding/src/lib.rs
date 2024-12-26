@@ -6,14 +6,14 @@ extern crate napi_derive;
 extern crate rspack_allocator;
 
 use std::pin::Pin;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use compiler::{Compiler, CompilerState, CompilerStateGuard};
 use napi::bindgen_prelude::*;
-use rspack_binding_options::BuiltinPlugin;
 use rspack_core::{Compilation, PluginExt};
 use rspack_error::Diagnostic;
-use rspack_fs_node::{AsyncNodeWritableFileSystem, ThreadsafeNodeFS};
+use rspack_fs::IntermediateFileSystem;
+use rspack_fs_node::{NodeFileSystem, ThreadsafeNodeFS};
 
 mod compiler;
 mod diagnostic;
@@ -24,7 +24,6 @@ mod resolver_factory;
 pub use diagnostic::*;
 use plugins::*;
 use resolver_factory::*;
-use rspack_binding_options::*;
 use rspack_binding_values::*;
 use rspack_tracing::chrome::FlushGuard;
 
@@ -37,13 +36,16 @@ pub struct Rspack {
 
 #[napi]
 impl Rspack {
+  #[allow(clippy::too_many_arguments)]
   #[napi(constructor)]
   pub fn new(
     env: Env,
+    compiler_path: String,
     options: RawOptions,
     builtin_plugins: Vec<BuiltinPlugin>,
     register_js_taps: RegisterJsTaps,
     output_filesystem: ThreadsafeNodeFS,
+    intermediate_filesystem: Option<ThreadsafeNodeFS>,
     mut resolver_factory_reference: Reference<JsResolverFactory>,
   ) -> Result<Self> {
     tracing::info!("raw_options: {:#?}", &options);
@@ -66,14 +68,25 @@ impl Rspack {
       (*resolver_factory_reference).get_resolver_factory(compiler_options.resolve.clone());
     let loader_resolver_factory = (*resolver_factory_reference)
       .get_loader_resolver_factory(compiler_options.resolve_loader.clone());
+
+    let intermediate_filesystem: Option<Arc<dyn IntermediateFileSystem>> =
+      if let Some(fs) = intermediate_filesystem {
+        Some(Arc::new(NodeFileSystem::new(fs).map_err(|e| {
+          Error::from_reason(format!("Failed to create intermediate filesystem: {e}",))
+        })?))
+      } else {
+        None
+      };
+
     let rspack = rspack_core::Compiler::new(
+      compiler_path,
       compiler_options,
       plugins,
-      rspack_binding_options::buildtime_plugins::buildtime_plugins(),
-      Some(Box::new(
-        AsyncNodeWritableFileSystem::new(output_filesystem)
-          .map_err(|e| Error::from_reason(format!("Failed to create writable filesystem: {e}",)))?,
-      )),
+      rspack_binding_values::buildtime_plugins::buildtime_plugins(),
+      Some(Arc::new(NodeFileSystem::new(output_filesystem).map_err(
+        |e| Error::from_reason(format!("Failed to create writable filesystem: {e}",)),
+      )?)),
+      intermediate_filesystem,
       None,
       Some(resolver_factory),
       Some(loader_resolver_factory),
@@ -93,7 +106,7 @@ impl Rspack {
 
   /// Build with the given option passed to the constructor
   #[napi(ts_args_type = "callback: (err: null | Error) => void")]
-  pub fn build(&mut self, env: Env, reference: Reference<Rspack>, f: JsFunction) -> Result<()> {
+  pub fn build(&mut self, env: Env, reference: Reference<Rspack>, f: Function) -> Result<()> {
     unsafe {
       self.run(env, reference, |compiler, _guard| {
         callbackify(env, f, async move {
@@ -121,7 +134,7 @@ impl Rspack {
     reference: Reference<Rspack>,
     changed_files: Vec<String>,
     removed_files: Vec<String>,
-    f: JsFunction,
+    f: Function,
   ) -> Result<()> {
     use std::collections::HashSet;
 
@@ -183,7 +196,14 @@ impl Rspack {
   }
 
   fn cleanup_last_compilation(&self, compilation: &Compilation) {
-    JsCompilationWrapper::cleanup(compilation.id());
+    let compilation_id = compilation.id();
+
+    JsCompilationWrapper::cleanup_last_compilation(compilation_id);
+    JsModuleWrapper::cleanup_last_compilation(compilation_id);
+    JsChunkWrapper::cleanup_last_compilation(compilation_id);
+    JsChunkGroupWrapper::cleanup_last_compilation(compilation_id);
+    JsDependencyWrapper::cleanup_last_compilation(compilation_id);
+    JsDependenciesBlockWrapper::cleanup_last_compilation(compilation_id);
   }
 }
 
@@ -224,7 +244,7 @@ static GLOBAL_TRACE_STATE: Mutex<TraceState> = Mutex::new(TraceState::Off);
 #[napi]
 pub fn register_global_trace(
   filter: String,
-  #[napi(ts_arg_type = "\"chrome\" | \"logger\"| \"console\"")] layer: String,
+  #[napi(ts_arg_type = "\"chrome\" | \"logger\"")] layer: String,
   output: String,
 ) {
   let mut state = GLOBAL_TRACE_STATE
@@ -233,10 +253,6 @@ pub fn register_global_trace(
   if matches!(&*state, TraceState::Off) {
     let guard = match layer.as_str() {
       "chrome" => rspack_tracing::enable_tracing_by_env_with_chrome_layer(&filter, &output),
-      "console" => {
-        rspack_tracing::enable_tracing_by_env_with_tokio_console();
-        None
-      }
       "logger" => {
         rspack_tracing::enable_tracing_by_env(&filter, &output);
         None

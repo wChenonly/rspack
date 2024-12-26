@@ -1,7 +1,7 @@
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   ChunkUkey, Compilation, RuntimeModule, RuntimeModuleStage, SourceType,
 };
 
@@ -16,6 +16,7 @@ pub struct ExposeRuntimeModule {
 }
 
 impl ExposeRuntimeModule {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self {
     Self::with_default(Identifier::from("webpack/runtime/initialize_exposes"), None)
   }
@@ -37,7 +38,7 @@ impl ExposeRuntimeModule {
       for m in modules {
         let code_gen = compilation
           .code_generation_results
-          .get(&m.identifier(), Some(&chunk.runtime));
+          .get(&m.identifier(), Some(chunk.runtime()));
         if let Some(data) = code_gen.data.get::<CodeGenerationDataExpose>() {
           return Some(data);
         };
@@ -61,7 +62,7 @@ impl RuntimeModule for ExposeRuntimeModule {
       .chunk
       .expect("should have chunk in <ExposeRuntimeModule as RuntimeModule>::generate");
     let Some(data) = self.find_expose_data(&chunk_ukey, compilation) else {
-      return Ok(RawSource::from("").boxed());
+      return Ok(RawStringSource::from_static("").boxed());
     };
     let module_map = data.module_map.render(compilation);
     let mut source = format!(
@@ -76,7 +77,7 @@ __webpack_require__.initializeExposesData = {{
     );
     source += "__webpack_require__.getContainer = __webpack_require__.getContainer || function() { throw new Error(\"should have __webpack_require__.getContainer\") };";
     source += "__webpack_require__.initContainer = __webpack_require__.initContainer || function() { throw new Error(\"should have __webpack_require__.initContainer\") };";
-    Ok(RawSource::from(source).boxed())
+    Ok(RawStringSource::from(source).boxed())
   }
 
   fn attach(&mut self, chunk: ChunkUkey) {

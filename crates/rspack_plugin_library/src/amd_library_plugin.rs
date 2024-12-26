@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
 use rspack_core::{
-  rspack_sources::{ConcatSource, RawSource, SourceExt},
+  rspack_sources::{ConcatSource, RawStringSource, SourceExt},
   ApplyContext, ChunkUkey, Compilation, CompilationAdditionalChunkRuntimeRequirements,
   CompilationParams, CompilerCompilation, CompilerOptions, ExternalModule, FilenameTemplate,
   LibraryName, LibraryNonUmdObject, LibraryOptions, LibraryType, PathData, Plugin, PluginContext,
@@ -101,7 +101,7 @@ fn render(
   let module_graph = compilation.get_module_graph();
   let modules = compilation
     .chunk_graph
-    .get_chunk_module_identifiers(chunk_ukey)
+    .get_chunk_modules_identifier(chunk_ukey)
     .iter()
     .filter_map(|identifier| {
       module_graph
@@ -125,35 +125,45 @@ fn render(
     .map(|c| format!("{c}."))
     .unwrap_or_default();
   if self.require_as_wrapper {
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "{amd_container_prefix}require({externals_deps_array}, {fn_start}"
     )));
   } else if let Some(name) = options.name {
     let normalize_name = compilation
       .get_path(
         &FilenameTemplate::from(name.to_string()),
-        PathData::default().chunk(chunk).content_hash_optional(
-          chunk
-            .content_hash
-            .get(&SourceType::JavaScript)
-            .map(|i| i.rendered(compilation.options.output.hash_digest_length)),
-        ),
+        PathData::default()
+          .chunk_id_optional(
+            chunk
+              .id(&compilation.chunk_ids_artifact)
+              .map(|id| id.as_str()),
+          )
+          .chunk_hash_optional(chunk.rendered_hash(
+            &compilation.chunk_hashes_artifact,
+            compilation.options.output.hash_digest_length,
+          ))
+          .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+          .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+            &compilation.chunk_hashes_artifact,
+            &SourceType::JavaScript,
+            compilation.options.output.hash_digest_length,
+          )),
       )
       .always_ok();
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "{amd_container_prefix}define('{normalize_name}', {externals_deps_array}, {fn_start}"
     )));
   } else if modules.is_empty() {
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "{amd_container_prefix}define({fn_start}"
     )));
   } else {
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "{amd_container_prefix}define({externals_deps_array}, {fn_start}"
     )));
   }
   source.add(render_source.source.clone());
-  source.add(RawSource::from("\n})"));
+  source.add(RawStringSource::from_static("\n})"));
   render_source.source = source.boxed();
   Ok(())
 }

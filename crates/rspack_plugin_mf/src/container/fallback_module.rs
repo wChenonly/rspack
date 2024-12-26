@@ -1,14 +1,15 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_collections::{Identifiable, Identifier};
 use rspack_core::{
   impl_module_meta_info, impl_source_map_config, module_update_hash,
-  rspack_sources::{RawSource, Source, SourceExt},
+  rspack_sources::{RawStringSource, Source, SourceExt},
   AsyncDependenciesBlockIdentifier, BoxDependency, BuildContext, BuildInfo, BuildMeta, BuildResult,
-  ChunkUkey, CodeGenerationResult, Compilation, ConcatenationScope, Context, DependenciesBlock,
-  DependencyId, FactoryMeta, LibIdentOptions, Module, ModuleIdentifier, ModuleType, RuntimeGlobals,
-  RuntimeSpec, SourceType,
+  ChunkGraph, ChunkUkey, CodeGenerationResult, Compilation, ConcatenationScope, Context,
+  DependenciesBlock, DependencyId, FactoryMeta, LibIdentOptions, Module, ModuleIdentifier,
+  ModuleType, RuntimeGlobals, RuntimeSpec, SourceType,
 };
 use rspack_error::{impl_empty_diagnosable_trait, Diagnostic, Result};
 use rspack_util::{itoa, source_map::SourceMapKind};
@@ -17,6 +18,7 @@ use super::fallback_item_dependency::FallbackItemDependency;
 use crate::utils::json_stringify;
 
 #[impl_source_map_config]
+#[cacheable]
 #[derive(Debug)]
 pub struct FallbackModule {
   blocks: Vec<AsyncDependenciesBlockIdentifier>,
@@ -74,16 +76,21 @@ impl DependenciesBlock for FallbackModule {
     self.dependencies.push(dependency)
   }
 
+  fn remove_dependency_id(&mut self, dependency: DependencyId) {
+    self.dependencies.retain(|d| d != &dependency)
+  }
+
   fn get_dependencies(&self) -> &[DependencyId] {
     &self.dependencies
   }
 }
 
+#[cacheable_dyn]
 #[async_trait]
 impl Module for FallbackModule {
   impl_module_meta_info!();
 
-  fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+  fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
     self.requests.len() as f64 * 5.0 + 42.0
   }
 
@@ -117,7 +124,7 @@ impl Module for FallbackModule {
 
   async fn build(
     &mut self,
-    _build_context: BuildContext<'_>,
+    _build_context: BuildContext,
     _: Option<&Compilation>,
   ) -> Result<BuildResult> {
     let build_info = BuildInfo {
@@ -154,7 +161,9 @@ impl Module for FallbackModule {
       .get_dependencies()
       .iter()
       .filter_map(|dep| module_graph.get_module_by_dependency_id(dep))
-      .filter_map(|module| compilation.chunk_graph.get_module_id(module.identifier()))
+      .filter_map(|module| {
+        ChunkGraph::get_module_id(&compilation.module_ids_artifact, module.identifier())
+      })
       .collect();
     let code = format!(
       r#"
@@ -180,7 +189,7 @@ module.exports = loop();
       ids = json_stringify(&ids),
       require = RuntimeGlobals::REQUIRE,
     );
-    codegen = codegen.with_javascript(RawSource::from(code).boxed());
+    codegen = codegen.with_javascript(RawStringSource::from(code).boxed());
     Ok(codegen)
   }
 

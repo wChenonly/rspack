@@ -1,57 +1,187 @@
-use napi_derive::napi;
-use rspack_core::{Compilation, Dependency, DependencyId, ModuleDependency, ModuleGraph};
+use std::{cell::RefCell, ptr::NonNull};
 
+use napi::{bindgen_prelude::ToNapiValue, Either};
+use napi_derive::napi;
+use rspack_core::{Compilation, CompilationId, Dependency, DependencyId};
+use rspack_napi::OneShotRef;
+use rustc_hash::FxHashMap as HashMap;
+
+// JsDependency allows JS-side access to a Dependency instance that has already
+// been processed and stored in the Compilation.
 #[napi]
-pub struct DependencyDTO {
+pub struct JsDependency {
+  pub(crate) compilation: Option<NonNull<Compilation>>,
   pub(crate) dependency_id: DependencyId,
-  pub(crate) compilation: &'static Compilation,
+  pub(crate) dependency: NonNull<dyn Dependency>,
 }
 
-impl DependencyDTO {
-  pub(crate) fn new(dependency_id: DependencyId, compilation: &'static Compilation) -> Self {
+impl JsDependency {
+  fn as_ref(&mut self) -> napi::Result<&dyn Dependency> {
+    if let Some(compilation) = self.compilation {
+      let compilation = unsafe { compilation.as_ref() };
+      let module_graph = compilation.get_module_graph();
+      if let Some(dependency) = module_graph.dependency_by_id(&self.dependency_id) {
+        self.dependency = {
+          #[allow(clippy::unwrap_used)]
+          NonNull::new(dependency.as_ref() as *const dyn Dependency as *mut dyn Dependency).unwrap()
+        };
+        Ok(unsafe { self.dependency.as_ref() })
+      } else {
+        Err(napi::Error::from_reason(format!(
+          "Unable to access dependency with id = {:?} now. The dependency have been removed on the Rust side.",
+          self.dependency_id
+        )))
+      }
+    } else {
+      // SAFETY:
+      // We need to make users aware in the documentation that values obtained within the JS hook callback should not be used outside the scope of the callback.
+      // We do not guarantee that the memory pointed to by the pointer remains valid when used outside the scope.
+      Ok(unsafe { self.dependency.as_ref() })
+    }
+  }
+
+  fn as_mut(&mut self) -> napi::Result<&mut dyn Dependency> {
+    // SAFETY:
+    // We need to make users aware in the documentation that values obtained within the JS hook callback should not be used outside the scope of the callback.
+    // We do not guarantee that the memory pointed to by the pointer remains valid when used outside the scope.
+    Ok(unsafe { self.dependency.as_mut() })
+  }
+}
+
+#[napi]
+impl JsDependency {
+  #[napi(getter)]
+  pub fn get_type(&mut self) -> napi::Result<&str> {
+    let dependency = self.as_ref()?;
+
+    Ok(dependency.dependency_type().as_str())
+  }
+
+  #[napi(getter)]
+  pub fn category(&mut self) -> napi::Result<&str> {
+    let dependency = self.as_ref()?;
+
+    Ok(dependency.category().as_str())
+  }
+
+  #[napi(getter)]
+  pub fn request(&mut self) -> napi::Result<napi::Either<&str, ()>> {
+    let dependency = self.as_ref()?;
+
+    Ok(match dependency.as_module_dependency() {
+      Some(dep) => napi::Either::A(dep.request()),
+      None => napi::Either::B(()),
+    })
+  }
+
+  #[napi(getter)]
+  pub fn critical(&mut self) -> napi::Result<bool> {
+    let dependency = self.as_ref()?;
+
+    Ok(match dependency.as_context_dependency() {
+      Some(dep) => dep.critical().is_some(),
+      None => false,
+    })
+  }
+
+  #[napi(setter)]
+  pub fn set_critical(&mut self, val: bool) -> napi::Result<()> {
+    let dependency = self.as_mut()?;
+
+    if let Some(dep) = dependency.as_context_dependency_mut() {
+      let critical = dep.critical_mut();
+      if !val {
+        *critical = None;
+      }
+    }
+    Ok(())
+  }
+}
+
+type DependencyInstanceRefs = HashMap<DependencyId, OneShotRef<JsDependency>>;
+
+type DependencyInstanceRefsByCompilationId =
+  RefCell<HashMap<CompilationId, DependencyInstanceRefs>>;
+
+thread_local! {
+  static DEPENDENCY_INSTANCE_REFS: DependencyInstanceRefsByCompilationId = Default::default();
+}
+
+pub struct JsDependencyWrapper {
+  dependency_id: DependencyId,
+  dependency: NonNull<dyn Dependency>,
+  compilation_id: CompilationId,
+  compilation: Option<NonNull<Compilation>>,
+}
+
+impl JsDependencyWrapper {
+  pub fn new(
+    dependency: &dyn Dependency,
+    compilation_id: CompilationId,
+    compilation: Option<&Compilation>,
+  ) -> Self {
+    let dependency_id = *dependency.id();
+
+    #[allow(clippy::unwrap_used)]
     Self {
       dependency_id,
-      compilation,
+      dependency: NonNull::new(dependency as *const dyn Dependency as *mut dyn Dependency).unwrap(),
+      compilation_id,
+      compilation: compilation
+        .map(|c| NonNull::new(c as *const Compilation as *mut Compilation).unwrap()),
     }
   }
 
-  fn dependency<'a>(&self, module_graph: &'a ModuleGraph) -> &'a dyn Dependency {
-    module_graph
-      .dependency_by_id(&self.dependency_id)
-      .unwrap_or_else(|| panic!("Failed to get dependency by id = {:?}", &self.dependency_id))
-      .as_ref()
-  }
-
-  fn module_dependency<'a>(
-    &self,
-    module_graph: &'a ModuleGraph,
-  ) -> Option<&'a dyn ModuleDependency> {
-    self.dependency(module_graph).as_module_dependency()
+  pub fn cleanup_last_compilation(compilation_id: CompilationId) {
+    DEPENDENCY_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.borrow_mut();
+      refs_by_compilation_id.remove(&compilation_id)
+    });
   }
 }
 
-#[napi]
-impl DependencyDTO {
-  #[napi(getter)]
-  pub fn get_type(&self) -> &str {
-    let module_graph = self.compilation.get_module_graph();
-    let dep = self.dependency(&module_graph);
-    dep.dependency_type().as_str()
-  }
+impl ToNapiValue for JsDependencyWrapper {
+  unsafe fn to_napi_value(
+    env: napi::sys::napi_env,
+    val: Self,
+  ) -> napi::Result<napi::sys::napi_value> {
+    DEPENDENCY_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.borrow_mut();
+      let entry = refs_by_compilation_id.entry(val.compilation_id);
+      let refs = match entry {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          let refs = HashMap::default();
+          entry.insert(refs)
+        }
+      };
 
-  #[napi(getter)]
-  pub fn category(&self) -> &str {
-    let module_graph = self.compilation.get_module_graph();
-    let dep = self.dependency(&module_graph);
-    dep.category().as_str()
-  }
+      match refs.entry(val.dependency_id) {
+        std::collections::hash_map::Entry::Occupied(occupied_entry) => {
+          let r = occupied_entry.get();
+          let instance = r.from_napi_mut_ref()?;
+          instance.compilation = val.compilation;
+          instance.dependency = val.dependency;
 
-  #[napi(getter)]
-  pub fn request(&self) -> napi::Either<String, ()> {
-    let module_graph = self.compilation.get_module_graph();
-    match self.module_dependency(&module_graph) {
-      Some(dep) => napi::Either::A(dep.request().to_string()),
-      None => napi::Either::B(()),
-    }
+          ToNapiValue::to_napi_value(env, r)
+        }
+        std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+          let js_dependency = JsDependency {
+            compilation: val.compilation,
+            dependency_id: val.dependency_id,
+            dependency: val.dependency,
+          };
+          let r = vacant_entry.insert(OneShotRef::new(env, js_dependency)?);
+          ToNapiValue::to_napi_value(env, r)
+        }
+      }
+    })
   }
+}
+
+pub type JsRuntimeSpec = Either<String, Vec<String>>;
+
+#[napi(object)]
+pub struct RawDependency {
+  pub request: String,
 }

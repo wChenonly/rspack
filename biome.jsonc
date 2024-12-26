@@ -19,10 +19,10 @@
 			"packages/rspack-test-tools/template/**/*",
 			"packages/rspack-test-tools/tests/**/*",
 			"packages/rspack-test-tools/src/helper/legacy/**/*",
-			"packages/playground/**/*",
+			"tests/e2e/**/*",
 			// --- ignore runtime code in browser
 			"packages/rspack/hot",
-			"packages/rspack/src/container/default.runtime.js"
+			"packages/rspack/src/runtime/moduleFederationDefaultRuntime.js"
 		]
 	},
 	"linter": {
@@ -33,6 +33,7 @@
 				"useKeyWithClickEvents": "off"
 			},
 			"complexity": {
+				"useArrowFunction": "off",
 				"noStaticOnlyClass": "off",
 				"noThisInStatic": "off",
 				"noBannedTypes": "off"
@@ -64,7 +65,7 @@
 			"packages/rspack/module.d.ts",
 			// --- ignore runtime code in browser
 			"packages/rspack/hot",
-			"packages/rspack/src/container/default.runtime.js"
+			"packages/rspack/src/runtime/moduleFederationDefaultRuntime.js"
 		]
 	},
 	"vcs": {

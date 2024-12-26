@@ -27,7 +27,7 @@ export { RspackOptionsApply, RspackOptionsApply as WebpackOptionsApply };
 
 export type { Chunk } from "./Chunk";
 export type { ChunkGroup } from "./ChunkGroup";
-export type { Module } from "./Module";
+export type { Module, ResolveData } from "./Module";
 export { MultiStats } from "./MultiStats";
 export { NormalModule } from "./NormalModule";
 export type { NormalModuleFactory } from "./NormalModuleFactory";
@@ -85,7 +85,7 @@ import { createHash } from "./util/createHash";
 export const util = { createHash, cleverMerge };
 
 export { default as EntryOptionPlugin } from "./lib/EntryOptionPlugin";
-export { type OutputFileSystem } from "./util/fs";
+export type { OutputFileSystem } from "./util/fs";
 
 ///// Internal Plugins /////
 export type { BannerPluginArgument } from "./builtin-plugin";
@@ -103,6 +103,15 @@ export { DynamicEntryPlugin } from "./builtin-plugin";
 export { ExternalsPlugin } from "./builtin-plugin";
 export { HotModuleReplacementPlugin } from "./builtin-plugin";
 export { NoEmitOnErrorsPlugin } from "./builtin-plugin";
+export { WarnCaseSensitiveModulesPlugin } from "./builtin-plugin";
+export { DllPlugin, type DllPluginOptions } from "./lib/DllPlugin";
+export {
+	DllReferencePlugin,
+	type DllReferencePluginOptions,
+	type DllReferencePluginOptionsSourceType,
+	type DllReferencePluginOptionsContent,
+	type DllReferencePluginOptionsManifest
+} from "./lib/DllReferencePlugin";
 export { EnvironmentPlugin } from "./lib/EnvironmentPlugin";
 export { LoaderOptionsPlugin } from "./lib/LoaderOptionsPlugin";
 export { LoaderTargetPlugin } from "./lib/LoaderTargetPlugin";
@@ -170,6 +179,8 @@ export const webworker: Webworker = { WebWorkerTemplatePlugin };
 import { LimitChunkCountPlugin } from "./builtin-plugin";
 import { RuntimeChunkPlugin } from "./builtin-plugin";
 import { SplitChunksPlugin } from "./builtin-plugin";
+import { RemoveDuplicateModulesPlugin } from "./builtin-plugin";
+
 interface Optimize {
 	LimitChunkCountPlugin: typeof LimitChunkCountPlugin;
 	RuntimeChunkPlugin: typeof RuntimeChunkPlugin;
@@ -273,9 +284,9 @@ export type {
 	SwcLoaderTsParserConfig
 } from "./builtin-loader/swc/index";
 
-export {
-	type LoaderOptions as LightningcssLoaderOptions,
-	type FeatureOptions as LightningcssFeatureOptions
+export type {
+	LoaderOptions as LightningcssLoaderOptions,
+	FeatureOptions as LightningcssFeatureOptions
 } from "./builtin-loader/lightningcss/index";
 
 ///// Experiments Stuff /////
@@ -285,11 +296,13 @@ interface Experiments {
 		register: typeof registerGlobalTrace;
 		cleanup: typeof cleanupGlobalTrace;
 	};
+	RemoveDuplicateModulesPlugin: typeof RemoveDuplicateModulesPlugin;
 }
 
 export const experiments: Experiments = {
 	globalTrace: {
 		register: registerGlobalTrace,
 		cleanup: cleanupGlobalTrace
-	}
+	},
+	RemoveDuplicateModulesPlugin
 };

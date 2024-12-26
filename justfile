@@ -12,7 +12,7 @@ _default:
 setup:
   # Install Rust-related tools
   cargo install cargo-binstall
-  cargo binstall taplo-cli cargo-release cargo-insta cargo-deny tokio-console -y
+  cargo binstall taplo-cli cargo-release cargo-insta cargo-deny -y
   
   # Setup Node.js environment
   corepack enable
@@ -31,6 +31,9 @@ ready:
 # Publish Rust crates to crates.io
 release-rust:
     cargo release publish --no-verify --execute --no-confirm
+# Check crate whether have correct fields for publish
+release-check:
+   cargo run -p release-check
 
 # Format Rust, TOML files, and JavaScript code
 fmt:

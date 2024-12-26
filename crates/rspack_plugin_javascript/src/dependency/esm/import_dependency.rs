@@ -1,6 +1,10 @@
+use rspack_cacheable::{
+  cacheable, cacheable_dyn,
+  with::{AsOption, AsPreset, AsVec},
+};
 use rspack_core::{
-  create_exports_object_referenced, module_namespace_promise, Compilation, DependencyType,
-  ExportsType, ExtendedReferencedExport, ImportAttributes, ModuleGraph, RealDependencyLocation,
+  create_exports_object_referenced, module_namespace_promise, Compilation, DependencyRange,
+  DependencyType, ExportsType, ExtendedReferencedExport, ImportAttributes, ModuleGraph,
   ReferencedExport, RuntimeSpec,
 };
 use rspack_core::{AsContextDependency, Dependency};
@@ -23,7 +27,7 @@ pub fn create_import_dependency_referenced_exports(
           .get_parent_module(dependency_id)
           .and_then(|id| mg.module_by_identifier(id))
           .and_then(|m| m.build_meta())
-          .map(|bm| bm.strict_harmony_module)
+          .map(|bm| bm.strict_esm_module)
         else {
           return create_exports_object_referenced();
         };
@@ -52,11 +56,14 @@ pub fn create_import_dependency_referenced_exports(
   }
 }
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct ImportDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   pub request: Atom,
-  pub range: RealDependencyLocation,
+  pub range: DependencyRange,
+  #[cacheable(with=AsOption<AsVec<AsPreset>>)]
   referenced_exports: Option<Vec<Atom>>,
   attributes: Option<ImportAttributes>,
   resource_identifier: String,
@@ -65,7 +72,7 @@ pub struct ImportDependency {
 impl ImportDependency {
   pub fn new(
     request: Atom,
-    range: RealDependencyLocation,
+    range: DependencyRange,
     referenced_exports: Option<Vec<Atom>>,
     attributes: Option<ImportAttributes>,
   ) -> Self {
@@ -82,6 +89,7 @@ impl ImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for ImportDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -103,7 +111,7 @@ impl Dependency for ImportDependency {
     self.attributes.as_ref()
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -120,6 +128,7 @@ impl Dependency for ImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for ImportDependency {
   fn request(&self) -> &str {
     &self.request
@@ -134,6 +143,7 @@ impl ModuleDependency for ImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for ImportDependency {
   fn apply(
     &self,

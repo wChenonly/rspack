@@ -58,7 +58,7 @@ async fn render_manifest(
     .map(|m| {
       let code_gen_result = compilation
         .code_generation_results
-        .get(&m.identifier(), Some(&chunk.runtime));
+        .get(&m.identifier(), Some(chunk.runtime()));
 
       let result = code_gen_result.get(&SourceType::Wasm).map(|source| {
         let (output_path, asset_info) = self
@@ -66,7 +66,14 @@ async fn render_manifest(
           .get(&m.identifier())
           .map(|s| s.clone())
           .expect("should have wasm_filename");
-        RenderManifestEntry::new(source.clone(), output_path, asset_info, false, false)
+
+        RenderManifestEntry {
+          source: source.clone(),
+          filename: output_path,
+          has_filename: false,
+          info: asset_info,
+          auxiliary: false,
+        }
       });
 
       Ok(result)

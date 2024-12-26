@@ -1,10 +1,11 @@
 use std::hash::Hash;
 
 use async_trait::async_trait;
-use rspack_core::rspack_sources::{ConcatSource, RawSource, SourceExt};
+use rspack_core::rspack_sources::{ConcatSource, RawStringSource, SourceExt};
 use rspack_core::{
-  ApplyContext, ChunkKind, ChunkUkey, Compilation, CompilationAdditionalChunkRuntimeRequirements,
-  CompilationParams, CompilerCompilation, CompilerOptions, Plugin, PluginContext, RuntimeGlobals,
+  ApplyContext, ChunkGraph, ChunkKind, ChunkUkey, Compilation,
+  CompilationAdditionalChunkRuntimeRequirements, CompilationParams, CompilerCompilation,
+  CompilerOptions, Plugin, PluginContext, RuntimeGlobals,
 };
 use rspack_error::Result;
 use rspack_hash::RspackHash;
@@ -101,31 +102,31 @@ fn render_chunk(
   let hooks = JsPlugin::get_compilation_hooks(compilation);
   let chunk = compilation.chunk_by_ukey.expect_get(chunk_ukey);
   let base_chunk_output_name = get_chunk_output_name(chunk, compilation)?;
-  if matches!(chunk.kind, ChunkKind::HotUpdate) {
+  if matches!(chunk.kind(), ChunkKind::HotUpdate) {
     unreachable!("HMR is not implemented for module chunk format yet");
   }
 
   let mut sources = ConcatSource::default();
-  sources.add(RawSource::from(format!(
+  sources.add(RawStringSource::from(format!(
     "export const ids = ['{}'];\n",
-    &chunk.expect_id().to_string()
+    &chunk.expect_id(&compilation.chunk_ids_artifact)
   )));
-  sources.add(RawSource::from("export const modules = "));
+  sources.add(RawStringSource::from_static("export const modules = "));
   sources.add(render_source.source.clone());
-  sources.add(RawSource::from(";\n"));
+  sources.add(RawStringSource::from_static(";\n"));
 
   if compilation
     .chunk_graph
     .has_chunk_runtime_modules(chunk_ukey)
   {
-    sources.add(RawSource::from("export const runtime = "));
+    sources.add(RawStringSource::from_static("export const runtime = "));
     sources.add(render_chunk_runtime_modules(compilation, chunk_ukey)?);
-    sources.add(RawSource::from(";\n"));
+    sources.add(RawStringSource::from_static(";\n"));
   }
 
   if chunk.has_entry_module(&compilation.chunk_graph) {
     let runtime_chunk_output_name = get_runtime_chunk_output_name(compilation, chunk_ukey)?;
-    sources.add(RawSource::from(format!(
+    sources.add(RawStringSource::from(format!(
       "import __webpack_require__ from '{}';\n",
       get_relative_path(&base_chunk_output_name, &runtime_chunk_output_name)
     )));
@@ -143,10 +144,7 @@ fn render_chunk(
 
     let mut loaded_chunks = HashSet::default();
     for (i, (module, entry)) in entries.iter().enumerate() {
-      let module_id = compilation
-        .get_module_graph()
-        .module_graph_module_by_identifier(module)
-        .map(|module| module.id(&compilation.chunk_graph))
+      let module_id = ChunkGraph::get_module_id(&compilation.module_ids_artifact, *module)
         .expect("should have module id");
       let runtime_chunk = compilation
         .chunk_group_by_ukey
@@ -196,7 +194,7 @@ fn render_chunk(
       .last()
       .expect("should have last entry module");
     let mut render_source = RenderSource {
-      source: RawSource::from(startup_source.join("\n")).boxed(),
+      source: RawStringSource::from(startup_source.join("\n")).boxed(),
     };
     hooks.render_startup.call(
       compilation,

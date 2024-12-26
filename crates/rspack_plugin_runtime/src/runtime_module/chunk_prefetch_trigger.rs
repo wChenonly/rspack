@@ -2,10 +2,12 @@ use std::hash::BuildHasherDefault;
 
 use cow_utils::CowUtils;
 use indexmap::IndexMap;
+use rspack_cacheable::with::AsMap;
 use rspack_collections::Identifier;
 use rspack_core::{
+  chunk_graph_chunk::ChunkId,
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   Compilation, RuntimeModule, RuntimeModuleStage,
 };
 use rustc_hash::FxHasher;
@@ -14,11 +16,12 @@ use rustc_hash::FxHasher;
 #[derive(Debug)]
 pub struct ChunkPrefetchTriggerRuntimeModule {
   id: Identifier,
-  chunk_map: IndexMap<String, Vec<String>, BuildHasherDefault<FxHasher>>,
+  #[cacheable(with=AsMap)]
+  chunk_map: IndexMap<ChunkId, Vec<ChunkId>, BuildHasherDefault<FxHasher>>,
 }
 
 impl ChunkPrefetchTriggerRuntimeModule {
-  pub fn new(chunk_map: IndexMap<String, Vec<String>, BuildHasherDefault<FxHasher>>) -> Self {
+  pub fn new(chunk_map: IndexMap<ChunkId, Vec<ChunkId>, BuildHasherDefault<FxHasher>>) -> Self {
     Self::with_default(
       Identifier::from("webpack/runtime/chunk_prefetch_trigger"),
       chunk_map,
@@ -33,7 +36,7 @@ impl RuntimeModule for ChunkPrefetchTriggerRuntimeModule {
 
   fn generate(&self, _: &Compilation) -> rspack_error::Result<BoxSource> {
     Ok(
-      RawSource::from(
+      RawStringSource::from(
         include_str!("runtime/chunk_prefetch_trigger.js")
           .cow_replace(
             "$CHUNK_MAP$",

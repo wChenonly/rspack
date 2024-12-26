@@ -4,9 +4,9 @@ use std::{fmt, sync::Arc};
 use async_trait::async_trait;
 use regex::Regex;
 use rspack_core::{
-  ApplyContext, BoxModule, Compilation, CompilationParams, CompilerCompilation, CompilerFinishMake,
-  CompilerOptions, DependencyType, EntryOptions, ModuleFactoryCreateData, NormalModuleCreateData,
-  NormalModuleFactoryModule, Plugin, PluginContext,
+  ApplyContext, BoxDependency, BoxModule, Compilation, CompilationParams, CompilerCompilation,
+  CompilerFinishMake, CompilerOptions, DependencyType, EntryOptions, ModuleFactoryCreateData,
+  NormalModuleCreateData, NormalModuleFactoryModule, Plugin, PluginContext,
 };
 use rspack_error::{Diagnostic, Result};
 use rspack_hook::{plugin, plugin_hook};
@@ -61,6 +61,7 @@ impl ProvideOptions {
   }
 }
 
+#[rspack_cacheable::cacheable]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub enum ProvideVersion {
   Version(String),
@@ -184,9 +185,13 @@ async fn compilation(
 
 #[plugin_hook(CompilerFinishMake for ProvideSharedPlugin)]
 async fn finish_make(&self, compilation: &mut Compilation) -> Result<()> {
-  for (resource, config) in self.resolved_provide_map.read().await.iter() {
-    compilation
-      .add_include(
+  let entries = self
+    .resolved_provide_map
+    .read()
+    .await
+    .iter()
+    .map(|(resource, config)| {
+      (
         Box::new(ProvideSharedDependency::new(
           config.share_scope.to_string(),
           config.share_key.to_string(),
@@ -196,14 +201,15 @@ async fn finish_make(&self, compilation: &mut Compilation) -> Result<()> {
           config.singleton,
           config.required_version.clone(),
           config.strict_version,
-        )),
+        )) as BoxDependency,
         EntryOptions {
           name: None,
           ..Default::default()
         },
       )
-      .await?;
-  }
+    })
+    .collect::<Vec<_>>();
+  compilation.add_include(entries).await?;
   Ok(())
 }
 

@@ -3,14 +3,34 @@ use std::collections::hash_set;
 use std::ops::Deref;
 use std::{cmp::Ordering, fmt::Debug, sync::Arc};
 
+use rspack_cacheable::{
+  cacheable,
+  with::{AsRefStr, AsVec},
+};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 
 use crate::{EntryOptions, EntryRuntime};
 
+#[cacheable]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RuntimeSpec {
+  #[cacheable(with=AsVec<AsRefStr>)]
   inner: FxHashSet<Arc<str>>,
   key: String,
+}
+
+impl std::fmt::Display for RuntimeSpec {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut iter = self.iter();
+    if let Some(first) = iter.next() {
+      write!(f, "{first}")?;
+    }
+    for r in iter {
+      write!(f, ",")?;
+      write!(f, "{r}")?;
+    }
+    Ok(())
+  }
 }
 
 impl std::hash::Hash for RuntimeSpec {
@@ -100,6 +120,10 @@ impl RuntimeSpec {
     ordered.sort_unstable();
     self.key = ordered.join("\n")
   }
+
+  pub fn as_str(&self) -> &str {
+    &self.key
+  }
 }
 
 pub type RuntimeKey = String;
@@ -167,8 +191,7 @@ pub fn merge_runtime(a: &RuntimeSpec, b: &RuntimeSpec) -> RuntimeSpec {
 }
 
 pub fn runtime_to_string(runtime: &RuntimeSpec) -> String {
-  let arr = runtime.iter().map(|item| item.as_ref()).collect::<Vec<_>>();
-  arr.join(",")
+  format!("{runtime}")
 }
 
 pub fn filter_runtime(

@@ -3,14 +3,15 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use indexmap::IndexMap;
+use rspack_cacheable::{cacheable, cacheable_dyn, with::Unsupported};
 use rspack_collections::Identifier;
-use rspack_core::rspack_sources::{BoxSource, RawSource, Source, SourceExt};
+use rspack_core::rspack_sources::{BoxSource, RawStringSource, Source, SourceExt};
 use rspack_core::DependencyType::WasmImport;
 use rspack_core::{
-  AssetInfo, BoxDependency, BuildMetaExportsType, Compilation, FilenameTemplate, GenerateContext,
-  Module, ModuleDependency, ModuleGraph, ModuleIdentifier, NormalModule, ParseContext, ParseResult,
-  ParserAndGenerator, PathData, RuntimeGlobals, SourceType, StaticExportsDependency,
-  StaticExportsSpec, UsedName,
+  AssetInfo, BoxDependency, BuildMetaExportsType, ChunkGraph, Compilation, FilenameTemplate,
+  GenerateContext, Module, ModuleDependency, ModuleGraph, ModuleId, ModuleIdentifier, NormalModule,
+  ParseContext, ParseResult, ParserAndGenerator, PathData, RuntimeGlobals, SourceType,
+  StaticExportsDependency, StaticExportsSpec, UsedName,
 };
 use rspack_error::{Diagnostic, IntoTWithDiagnosticArray, Result, TWithDiagnosticArray};
 use rspack_util::infallible::ResultInfallibleExt as _;
@@ -21,13 +22,16 @@ use wasmparser::{Import, Parser, Payload};
 use crate::dependency::WasmImportDependency;
 use crate::ModuleIdToFileName;
 
+#[cacheable]
 #[derive(Debug)]
 pub struct AsyncWasmParserAndGenerator {
+  #[cacheable(with=Unsupported)]
   pub(crate) module_id_to_filename: ModuleIdToFileName,
 }
 
 pub(crate) static WASM_SOURCE_TYPE: &[SourceType; 2] = &[SourceType::Wasm, SourceType::JavaScript];
 
+#[cacheable_dyn]
 impl ParserAndGenerator for AsyncWasmParserAndGenerator {
   fn source_types(&self) -> &[SourceType] {
     WASM_SOURCE_TYPE
@@ -149,12 +153,11 @@ impl ParserAndGenerator for AsyncWasmParserAndGenerator {
         runtime_requirements.insert(RuntimeGlobals::EXPORTS);
         runtime_requirements.insert(RuntimeGlobals::INSTANTIATE_WASM);
 
-        let mut dep_modules = IndexMap::<ModuleIdentifier, (String, &str)>::new();
+        let mut dep_modules = IndexMap::<ModuleIdentifier, (String, &ModuleId)>::new();
         let mut wasm_deps_by_request = IndexMap::<&str, Vec<(Identifier, String, String)>>::new();
         let mut promises: Vec<String> = vec![];
 
         let module_graph = &compilation.get_module_graph();
-        let chunk_graph = &compilation.chunk_graph;
 
         module
           .get_dependencies()
@@ -171,7 +174,14 @@ impl ParserAndGenerator for AsyncWasmParserAndGenerator {
             if let Some(mgm) = mgm {
               if !dep_modules.contains_key(&mgm.module_identifier) {
                 let import_var = format!("WEBPACK_IMPORTED_MODULE_{}", itoa!(dep_modules.len()));
-                let val = (import_var.clone(), mgm.id(chunk_graph));
+                let val = (
+                  import_var.clone(),
+                  ChunkGraph::get_module_id(
+                    &compilation.module_ids_artifact,
+                    mgm.module_identifier,
+                  )
+                  .expect("should have module id"),
+                );
 
                 if ModuleGraph::is_async(compilation, &mgm.module_identifier) {
                   promises.push(import_var);
@@ -271,9 +281,9 @@ impl ParserAndGenerator for AsyncWasmParserAndGenerator {
             RuntimeGlobals::ASYNC_MODULE,
           );
 
-          RawSource::from(format!("{decl}{async_dependencies}"))
+          RawStringSource::from(format!("{decl}{async_dependencies}"))
         } else {
-          RawSource::from(format!(
+          RawStringSource::from(format!(
             "{imports_code} module.exports = {instantiate_call};"
           ))
         };
@@ -311,8 +321,8 @@ fn render_wasm_name(
     .always_ok()
 }
 
-fn render_import_stmt(import_var: &str, module_id: &str) -> String {
-  let module_id = serde_json::to_string(&module_id).expect("TODO");
+fn render_import_stmt(import_var: &str, module_id: &ModuleId) -> String {
+  let module_id = serde_json::to_string(module_id).expect("TODO");
   format!("var {import_var} = __webpack_require__({module_id});\n",)
 }
 

@@ -4,7 +4,7 @@ import WebpackLicense from '@components/WebpackLicense';
 
 # Watch
 
-监听：该选项用于监听文件变更并在变更时触发重新编译。
+监听：该选项用于监听文件变更，并在变更时触发重新编译。
 
 ## watch
 
@@ -21,7 +21,7 @@ module.exports = {
 ```
 
 :::tip
-在使用 `@rspack/dev-server` 时，watch 默认为 true。
+在使用 `@rspack/dev-server` 时，`watch` 默认为 true。
 :::
 
 ## watchOptions
@@ -58,22 +58,96 @@ module.exports = {
 
 ### watchOptions.ignored
 
-- **类型：** `RegExp`, `string`, `string[]`
+- **类型：** `RegExp | string | string[]`
+- **默认值：** `/[\\/](?:\.git|node_modules)[\\/]/`
 
-监听时排除匹配到的路径。
+监听时排除匹配到的路径。监听大量文件可能会导致 CPU 或内存使用率过高。
+
+Rspack 从 v1.2.0 开始，默认排除 `node_modules` 和 `.git` 目录下的文件。这意味着当这些目录下的文件发生变化时，不会触发重新构建。
+
+如果你希望监听 `node_modules` 目录，可以设置为仅排除 `.git` 目录：
+
+```js title=rspack.config.js
+module.exports = {
+  //...
+  watchOptions: {
+    ignored: /\.git/,
+  },
+};
+```
+
+`ignored` 可以使用 glob 匹配：
+
+```js title=rspack.config.js
+module.exports = {
+  //...
+  watchOptions: {
+    ignored: '**/.git',
+  },
+};
+```
+
+还可以使用多个 glob 匹配：
+
+```js title=rspack.config.js
+module.exports = {
+  //...
+  watchOptions: {
+    ignored: ['**/files/**/*.js', '**/.git', '**/node_modules'],
+  },
+};
+```
+
+还可以指定为一个或多个绝对路径：
+
+```js title=rspack.config.js
+const path = require('node:path');
+
+module.exports = {
+  //...
+  watchOptions: {
+    ignored: [path.posix.resolve(__dirname, './ignored-dir')],
+  },
+};
+```
+
+当使用 glob 匹配时，Rspack 会将它们转换为正则表达式，因此在使用 glob 匹配之前，请确保你熟悉 [glob-to-regexp](https://github.com/fitzgen/glob-to-regexp)。
 
 ### watchOptions.poll
 
 - **类型：** `boolean`, `number`
 - **默认值：** `false`
 
-是否通过轮询进行监听，`true` 时默认的轮询间隔为 5007 毫秒。
+是否通过轮询进行监听。
+
+当设置为 `true` 时，默认的轮询间隔为 5007 毫秒。
+
+```js title=rspack.config.js
+module.exports = {
+  //...
+  watchOptions: {
+    poll: true,
+  },
+};
+```
+
+还可以设置一个自定义的轮询间隔：
+
+```js title=rspack.config.js
+module.exports = {
+  //...
+  watchOptions: {
+    poll: 1000, // 每秒检查一次
+  },
+};
+```
 
 ### watchOptions.followSymlinks
 
 - **类型：** `boolean`
+- **默认值：** `false`
 
-根据软链接查找文件。这通常是不需要的，因为 Rspack 已经使用 [resolve.symlinks](/config/resolve#resolvesymlinks) 解析了软链接。
+是否根据软链接查找文件。这通常是不需要的，因为 Rspack 已经使用 [resolve.symlinks](/config/resolve#resolvesymlinks) 解析了软链接。
 
 ```js title=rspack.config.js
 module.exports = {

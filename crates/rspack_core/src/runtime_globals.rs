@@ -3,9 +3,12 @@ use std::fmt;
 use bitflags::bitflags;
 use swc_core::ecma::atoms::Atom;
 
+#[rspack_cacheable::cacheable]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct RuntimeGlobals(u128);
+
 bitflags! {
-  #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-  pub struct RuntimeGlobals: u128 {
+  impl RuntimeGlobals: u128 {
     const REQUIRE_SCOPE = 1 << 0;
 
     /**
@@ -207,7 +210,7 @@ bitflags! {
 
     const NODE_MODULE_DECORATOR = 1 << 47;
 
-    const HARMONY_MODULE_DECORATOR = 1 << 48;
+    const ESM_MODULE_DECORATOR = 1 << 48;
 
     /**
      * the System.register context object
@@ -239,15 +242,21 @@ bitflags! {
 
     const PRELOAD_CHUNK_HANDLERS = 1 << 61;
 
-    // rspack only
-    const RSPACK_VERSION = 1 << 62;
-
-    const HAS_CSS_MODULES = 1 << 63;
+    const UNCAUGHT_ERROR_HANDLER = 1 << 62;
 
     // rspack only
-    const RSPACK_UNIQUE_ID = 1 << 64;
+    const RSPACK_VERSION = 1 << 63;
 
-    const HAS_FETCH_PRIORITY = 1 << 65;
+    const HAS_CSS_MODULES = 1 << 64;
+
+    // rspack only
+    const RSPACK_UNIQUE_ID = 1 << 65;
+
+    const HAS_FETCH_PRIORITY = 1 << 66;
+
+    // amd module support
+    const AMD_DEFINE = 1 << 67;
+    const AMD_OPTIONS = 1 << 68;
   }
 }
 
@@ -293,6 +302,8 @@ impl RuntimeGlobals {
       R::GET_CHUNK_UPDATE_CSS_FILENAME => "__webpack_require__.hk",
       R::HMR_MODULE_DATA => "__webpack_require__.hmrD",
       R::HMR_RUNTIME_STATE_PREFIX => "__webpack_require__.hmrS",
+      R::AMD_DEFINE => "__webpack_require__.amdD",
+      R::AMD_OPTIONS => "__webpack_require__.amdO",
       R::EXTERNAL_INSTALL_CHUNK => "__webpack_require__.C",
       R::GET_FULL_HASH => "__webpack_require__.h",
       R::GLOBAL => "__webpack_require__.g",
@@ -313,7 +324,7 @@ impl RuntimeGlobals {
       R::EXPORTS => "__webpack_exports__",
       R::COMPAT_GET_DEFAULT_EXPORT => "__webpack_require__.n",
       R::CREATE_FAKE_NAMESPACE_OBJECT => "__webpack_require__.t",
-      R::HARMONY_MODULE_DECORATOR => "__webpack_require__.hmd",
+      R::ESM_MODULE_DECORATOR => "__webpack_require__.hmd",
       R::NODE_MODULE_DECORATOR => "__webpack_require__.nmd",
       R::SYSTEM_CONTEXT => "__webpack_require__.y",
       R::THIS_AS_EXPORTS => "top-level-this-exports",
@@ -328,6 +339,7 @@ impl RuntimeGlobals {
       R::PREFETCH_CHUNK_HANDLERS => "__webpack_require__.F",
       R::PRELOAD_CHUNK => "__webpack_require__.G",
       R::PRELOAD_CHUNK_HANDLERS => "__webpack_require__.H",
+      R::UNCAUGHT_ERROR_HANDLER => "__webpack_require__.oe",
       // rspack only
       R::RSPACK_VERSION => "__webpack_require__.rv",
       R::RSPACK_UNIQUE_ID => "__webpack_require__.ruid",

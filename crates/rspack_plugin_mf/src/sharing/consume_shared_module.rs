@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_collections::{Identifiable, Identifier};
 use rspack_core::{
   async_module_factory, impl_module_meta_info, impl_source_map_config, rspack_sources::Source,
@@ -21,6 +22,7 @@ use super::{
 use crate::{utils::json_stringify, ConsumeOptions};
 
 #[impl_source_map_config]
+#[cacheable]
 #[derive(Debug)]
 pub struct ConsumeSharedModule {
   blocks: Vec<AsyncDependenciesBlockIdentifier>,
@@ -61,7 +63,7 @@ impl ConsumeSharedModule {
     Self {
       blocks: Vec::new(),
       dependencies: Vec::new(),
-      identifier: ModuleIdentifier::from(identifier.clone()),
+      identifier: ModuleIdentifier::from(identifier.as_ref()),
       lib_ident: format!(
         "webpack/sharing/consume/{}/{}{}",
         &options.share_scope,
@@ -102,16 +104,21 @@ impl DependenciesBlock for ConsumeSharedModule {
     self.dependencies.push(dependency)
   }
 
+  fn remove_dependency_id(&mut self, dependency: DependencyId) {
+    self.dependencies.retain(|d| d != &dependency)
+  }
+
   fn get_dependencies(&self) -> &[DependencyId] {
     &self.dependencies
   }
 }
 
+#[cacheable_dyn]
 #[async_trait]
 impl Module for ConsumeSharedModule {
   impl_module_meta_info!();
 
-  fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+  fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
     42.0
   }
 
@@ -145,7 +152,7 @@ impl Module for ConsumeSharedModule {
 
   async fn build(
     &mut self,
-    _build_context: BuildContext<'_>,
+    _build_context: BuildContext,
     _: Option<&Compilation>,
   ) -> Result<BuildResult> {
     let mut blocks = vec![];

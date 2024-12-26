@@ -1,7 +1,7 @@
 (() => { // webpackBootstrap
 "use strict";
 var __webpack_modules__ = ({
-"./style.css?fe8c": (function (__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+"./style.css": (function (__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 __webpack_require__.r(__webpack_exports__);
 __webpack_require__.d(__webpack_exports__, {
   "a-class": function() { return _1; },
@@ -73,12 +73,16 @@ __webpack_require__.r = function(exports) {
 })();
 /************************************************************************/
 var __webpack_exports__ = {};
+// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
+(() => {
 __webpack_require__.r(__webpack_exports__);
-/* harmony import */var _style_css__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__("./style.css?fe8c");
+/* ESM import */var _style_css__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__("./style.css");
 
 
 // eslint-disable-next-line no-console
 console.log({ css: _style_css__WEBPACK_IMPORTED_MODULE_0__["default"], aClass: _style_css__WEBPACK_IMPORTED_MODULE_0__["a-class"], bClass: _style_css__WEBPACK_IMPORTED_MODULE_0__.b__class, cClass: _style_css__WEBPACK_IMPORTED_MODULE_0__.cClass });
+
+})();
 
 })()
 ;

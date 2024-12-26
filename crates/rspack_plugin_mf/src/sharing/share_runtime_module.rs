@@ -3,8 +3,8 @@ use itertools::Itertools;
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
-  ChunkUkey, Compilation, RuntimeGlobals, RuntimeModule, SourceType,
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
+  ChunkUkey, Compilation, ModuleId, RuntimeGlobals, RuntimeModule, SourceType,
 };
 use rustc_hash::FxHashMap;
 
@@ -49,7 +49,7 @@ impl RuntimeModule for ShareRuntimeModule {
       for m in modules {
         let code_gen = compilation
           .code_generation_results
-          .get(&m.identifier(), Some(&chunk.runtime));
+          .get(&m.identifier(), Some(chunk.runtime()));
         let Some(data) = code_gen.data.get::<CodeGenerationDataShareInit>() else {
           continue;
         };
@@ -112,7 +112,7 @@ impl RuntimeModule for ShareRuntimeModule {
     } else {
       include_str!("./initializeSharing.js")
     };
-    Ok(RawSource::from(format!(
+    Ok(RawStringSource::from(format!(
       r#"
 {share_scope_map} = {{}};
 __webpack_require__.initializeSharingData = {{ scopeToSharingDataMapping: {{ {scope_to_data_init} }}, uniqueName: {unique_name} }};
@@ -147,7 +147,7 @@ pub type DataInitStage = i8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataInitInfo {
-  ExternalModuleId(Option<String>),
+  ExternalModuleId(Option<ModuleId>),
   ProvideSharedInfo(ProvideSharedInfo),
 }
 

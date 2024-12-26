@@ -1,15 +1,11 @@
 import nodePath from "node:path";
 import type { JsAssetInfo, RawFuncUseCtx } from "@rspack/binding";
-import type * as webpackDevServer from "webpack-dev-server";
-import { z } from "zod";
-
-import type { Compilation, Compiler } from "..";
+import { type SyncParseReturnType, ZodIssueCode, z } from "zod";
 import { Chunk } from "../Chunk";
-import type { PathData } from "../Compilation";
+import type { Compilation, PathData } from "../Compilation";
 import { Module } from "../Module";
 import type * as t from "./types";
-
-export type * from "./types";
+import { ZodRspackCrossChecker } from "./utils";
 
 const filenameTemplate = z.string() satisfies z.ZodType<t.FilenameTemplate>;
 
@@ -53,6 +49,7 @@ const falsy = z.union([
 	z.null(),
 	z.undefined()
 ]) satisfies z.ZodType<t.Falsy>;
+
 //#endregion
 
 //#region Entry
@@ -200,127 +197,109 @@ const entry = entryStatic.or(entryDynamic) satisfies z.ZodType<t.Entry>;
 //#endregion
 
 //#region Output
-const path = z.string();
-export type Path = z.infer<typeof path>;
+const path = z.string() satisfies z.ZodType<t.Path>;
 
-const pathinfo = z.boolean().or(z.literal("verbose"));
-export type Pathinfo = z.infer<typeof pathinfo>;
+const pathinfo = z
+	.boolean()
+	.or(z.literal("verbose")) satisfies z.ZodType<t.Pathinfo>;
 
-const assetModuleFilename = filename;
-export type AssetModuleFilename = z.infer<typeof assetModuleFilename>;
+const assetModuleFilename = filename satisfies z.ZodType<t.AssetModuleFilename>;
 
-const webassemblyModuleFilename = z.string();
-export type WebassemblyModuleFilename = z.infer<
-	typeof webassemblyModuleFilename
->;
+const webassemblyModuleFilename =
+	z.string() satisfies z.ZodType<t.WebassemblyModuleFilename>;
 
-const chunkFilename = filename;
-export type ChunkFilename = z.infer<typeof chunkFilename>;
+const chunkFilename = filename satisfies z.ZodType<t.ChunkFilename>;
 
 const crossOriginLoading = z
 	.literal(false)
-	.or(z.enum(["anonymous", "use-credentials"]));
-export type CrossOriginLoading = z.infer<typeof crossOriginLoading>;
+	.or(
+		z.enum(["anonymous", "use-credentials"])
+	) satisfies z.ZodType<t.CrossOriginLoading>;
 
-const cssFilename = filename;
-export type CssFilename = z.infer<typeof cssFilename>;
+const cssFilename = filename satisfies z.ZodType<t.CssFilename>;
 
-const cssChunkFilename = filename;
-export type CssChunkFilename = z.infer<typeof cssChunkFilename>;
+const cssChunkFilename = filename satisfies z.ZodType<t.CssChunkFilename>;
 
-const hotUpdateChunkFilename = filenameTemplate;
-export type HotUpdateChunkFilename = z.infer<typeof hotUpdateChunkFilename>;
+const hotUpdateChunkFilename =
+	filenameTemplate satisfies z.ZodType<t.HotUpdateChunkFilename>;
 
-const hotUpdateMainFilename = filenameTemplate;
-export type HotUpdateMainFilename = z.infer<typeof hotUpdateMainFilename>;
+const hotUpdateMainFilename =
+	filenameTemplate satisfies z.ZodType<t.HotUpdateMainFilename>;
 
-const hotUpdateGlobal = z.string();
-export type HotUpdateGlobal = z.infer<typeof hotUpdateGlobal>;
+const hotUpdateGlobal = z.string() satisfies z.ZodType<t.HotUpdateGlobal>;
 
-const uniqueName = z.string();
-export type UniqueName = z.infer<typeof uniqueName>;
+const uniqueName = z.string() satisfies z.ZodType<t.UniqueName>;
 
-const chunkLoadingGlobal = z.string();
-export type ChunkLoadingGlobal = z.infer<typeof chunkLoadingGlobal>;
+const chunkLoadingGlobal = z.string() satisfies z.ZodType<t.ChunkLoadingGlobal>;
 
-const enabledLibraryTypes = z.array(libraryType);
-export type EnabledLibraryTypes = z.infer<typeof enabledLibraryTypes>;
+const enabledLibraryTypes = z.array(
+	libraryType
+) satisfies z.ZodType<t.EnabledLibraryTypes>;
 
-const clean = z.boolean();
-export type Clean = z.infer<typeof clean>;
+const clean = z.union([
+	z.boolean(),
+	z.strictObject({
+		keep: z.string().optional()
+	})
+]) satisfies z.ZodType<t.Clean>;
 
-const outputModule = z.boolean();
-export type OutputModule = z.infer<typeof outputModule>;
+const outputModule = z.boolean() satisfies z.ZodType<t.OutputModule>;
 
-const strictModuleExceptionHandling = z.boolean();
-export type StrictModuleExceptionHandling = z.infer<
-	typeof strictModuleExceptionHandling
->;
+const strictModuleExceptionHandling =
+	z.boolean() satisfies z.ZodType<t.StrictModuleExceptionHandling>;
 
-const strictModuleErrorHandling = z.boolean();
-export type StrictModuleErrorHandling = z.infer<
-	typeof strictModuleErrorHandling
->;
+const strictModuleErrorHandling =
+	z.boolean() satisfies z.ZodType<t.StrictModuleErrorHandling>;
 
-const globalObject = z.string();
-export type GlobalObject = z.infer<typeof globalObject>;
+const globalObject = z.string() satisfies z.ZodType<t.GlobalObject>;
 
-const enabledWasmLoadingTypes = z.array(wasmLoadingType);
-export type EnabledWasmLoadingTypes = z.infer<typeof enabledWasmLoadingTypes>;
+const enabledWasmLoadingTypes = z.array(
+	wasmLoadingType
+) satisfies z.ZodType<t.EnabledWasmLoadingTypes>;
 
-const importFunctionName = z.string();
-export type ImportFunctionName = z.infer<typeof importFunctionName>;
+const importFunctionName = z.string() satisfies z.ZodType<t.ImportFunctionName>;
 
-const importMetaName = z.string();
-export type ImportMetaName = z.infer<typeof importMetaName>;
+const importMetaName = z.string() satisfies z.ZodType<t.ImportMetaName>;
 
-const iife = z.boolean();
-export type Iife = z.infer<typeof iife>;
+const iife = z.boolean() satisfies z.ZodType<t.Iife>;
 
-const enabledChunkLoadingTypes = z.array(chunkLoadingType);
-export type EnabledChunkLoadingTypes = z.infer<typeof enabledChunkLoadingTypes>;
+const enabledChunkLoadingTypes = z.array(
+	chunkLoadingType
+) satisfies z.ZodType<t.EnabledChunkLoadingTypes>;
 
-const chunkFormat = z.literal(false).or(z.string());
-export type ChunkFormat = z.infer<typeof chunkFormat>;
+const chunkFormat = z
+	.literal(false)
+	.or(z.string()) satisfies z.ZodType<t.ChunkFormat>;
 
-const workerPublicPath = z.string();
-export type WorkerPublicPath = z.infer<typeof workerPublicPath>;
+const workerPublicPath = z.string() satisfies z.ZodType<t.WorkerPublicPath>;
 
 const trustedTypes = z.strictObject({
-	policyName: z.string().optional()
-});
-export type TrustedTypes = z.infer<typeof trustedTypes>;
+	policyName: z.string().optional(),
+	onPolicyCreationFailure: z.enum(["continue", "stop"]).optional()
+}) satisfies z.ZodType<t.TrustedTypes>;
 
-const hashDigest = z.string();
-export type HashDigest = z.infer<typeof hashDigest>;
+const hashDigest = z.string() satisfies z.ZodType<t.HashDigest>;
 
-const hashDigestLength = z.number();
-export type HashDigestLength = z.infer<typeof hashDigestLength>;
+const hashDigestLength = z.number() satisfies z.ZodType<t.HashDigestLength>;
 
-const hashFunction = z.enum(["md4", "xxhash64"]);
-export type HashFunction = z.infer<typeof hashFunction>;
+const hashFunction = z.enum([
+	"md4",
+	"xxhash64"
+]) satisfies z.ZodType<t.HashFunction>;
 
-const hashSalt = z.string();
-export type HashSalt = z.infer<typeof hashSalt>;
+const hashSalt = z.string() satisfies z.ZodType<t.HashSalt>;
 
-const sourceMapFilename = z.string();
-export type SourceMapFilename = z.infer<typeof sourceMapFilename>;
+const sourceMapFilename = z.string() satisfies z.ZodType<t.SourceMapFilename>;
 
-const devtoolNamespace = z.string();
-export type DevtoolNamespace = z.infer<typeof devtoolNamespace>;
+const devtoolNamespace = z.string() satisfies z.ZodType<t.DevtoolNamespace>;
 
 const devtoolModuleFilenameTemplate = z.union([
 	z.string(),
 	z.function(z.tuple([z.any()]), z.any())
-]);
-export type DevtoolModuleFilenameTemplate = z.infer<
-	typeof devtoolModuleFilenameTemplate
->;
+]) satisfies z.ZodType<t.DevtoolModuleFilenameTemplate>;
 
-const devtoolFallbackModuleFilenameTemplate = devtoolModuleFilenameTemplate;
-export type DevtoolFallbackModuleFilenameTemplate = z.infer<
-	typeof devtoolFallbackModuleFilenameTemplate
->;
+const devtoolFallbackModuleFilenameTemplate =
+	devtoolModuleFilenameTemplate satisfies z.ZodType<t.DevtoolFallbackModuleFilenameTemplate>;
 
 const environment = z.strictObject({
 	arrowFunction: z.boolean().optional(),
@@ -337,8 +316,7 @@ const environment = z.strictObject({
 	nodePrefixForCoreModules: z.boolean().optional(),
 	optionalChaining: z.boolean().optional(),
 	templateLiteral: z.boolean().optional()
-});
-export type Environment = z.infer<typeof environment>;
+}) satisfies z.ZodType<t.Environment>;
 
 const output = z.strictObject({
 	path: path.optional(),
@@ -393,9 +371,9 @@ const output = z.strictObject({
 		devtoolFallbackModuleFilenameTemplate.optional(),
 	chunkLoadTimeout: z.number().optional(),
 	charset: z.boolean().optional(),
-	environment: environment.optional()
-});
-export type Output = z.infer<typeof output>;
+	environment: environment.optional(),
+	compareBeforeEmit: z.boolean().optional()
+}) satisfies z.ZodType<t.Output>;
 //#endregion
 
 //#region Resolve
@@ -449,56 +427,42 @@ const baseRuleSetCondition = z
 	.or(z.string())
 	.or(z.function().args(z.string()).returns(z.boolean()));
 
-export type RuleSetCondition =
-	| z.infer<typeof baseRuleSetCondition>
-	| RuleSetConditions
-	| RuleSetLogicalConditions;
-
-const ruleSetCondition: z.ZodType<RuleSetCondition> = baseRuleSetCondition
+const ruleSetCondition: z.ZodType<t.RuleSetCondition> = baseRuleSetCondition
 	.or(z.lazy(() => ruleSetConditions))
 	.or(z.lazy(() => ruleSetLogicalConditions));
 
-export type RuleSetConditions = RuleSetCondition[];
-
-const ruleSetConditions: z.ZodType<RuleSetConditions> = z.lazy(() =>
+const ruleSetConditions: z.ZodType<t.RuleSetConditions> = z.lazy(() =>
 	z.array(ruleSetCondition)
 );
 
-export type RuleSetLogicalConditions = {
-	and?: RuleSetConditions;
-	or?: RuleSetConditions;
-	not?: RuleSetCondition;
-};
-
-const ruleSetLogicalConditions: z.ZodType<RuleSetLogicalConditions> =
+const ruleSetLogicalConditions: z.ZodType<t.RuleSetLogicalConditions> =
 	z.strictObject({
 		and: ruleSetConditions.optional(),
 		or: ruleSetConditions.optional(),
 		not: ruleSetCondition.optional()
 	});
 
-const ruleSetLoader = z.string();
-export type RuleSetLoader = z.infer<typeof ruleSetLoader>;
+const ruleSetLoader = z.string() satisfies z.ZodType<t.RuleSetLoader>;
 
-const ruleSetLoaderOptions = z.string().or(z.record(z.any()));
-export type RuleSetLoaderOptions = z.infer<typeof ruleSetLoaderOptions>;
+const ruleSetLoaderOptions = z
+	.string()
+	.or(z.record(z.any())) satisfies z.ZodType<t.RuleSetLoaderOptions>;
 
 const ruleSetLoaderWithOptions = z.strictObject({
 	ident: z.string().optional(),
 	loader: ruleSetLoader,
 	options: ruleSetLoaderOptions.optional()
-});
-export type RuleSetLoaderWithOptions = z.infer<typeof ruleSetLoaderWithOptions>;
+}) satisfies z.ZodType<t.RuleSetLoaderWithOptions>;
 
-const ruleSetUseItem = ruleSetLoader.or(ruleSetLoaderWithOptions);
-export type RuleSetUseItem = z.infer<typeof ruleSetUseItem>;
+const ruleSetUseItem = ruleSetLoader.or(
+	ruleSetLoaderWithOptions
+) satisfies z.ZodType<t.RuleSetUseItem>;
 
 const ruleSetUse = ruleSetUseItem
 	.or(ruleSetUseItem.array())
 	.or(
 		z.function().args(z.custom<RawFuncUseCtx>()).returns(ruleSetUseItem.array())
-	);
-export type RuleSetUse = z.infer<typeof ruleSetUse>;
+	) satisfies z.ZodType<t.RuleSetUse>;
 
 const baseRuleSetRule = z.strictObject({
 	test: ruleSetCondition.optional(),
@@ -524,53 +488,42 @@ const baseRuleSetRule = z.strictObject({
 	resolve: resolveOptions.optional(),
 	sideEffects: z.boolean().optional(),
 	enforce: z.literal("pre").or(z.literal("post")).optional()
+}) satisfies z.ZodType<t.RuleSetRule>;
+
+const ruleSetRule: z.ZodType<t.RuleSetRule> = baseRuleSetRule.extend({
+	oneOf: z.lazy(() => ruleSetRule.or(falsy).array()).optional(),
+	rules: z.lazy(() => ruleSetRule.or(falsy).array()).optional()
 });
 
-export type RuleSetRule = z.infer<typeof baseRuleSetRule> & {
-	oneOf?: RuleSetRule[];
-	rules?: RuleSetRule[];
-};
-
-const ruleSetRule: z.ZodType<RuleSetRule> = baseRuleSetRule.extend({
-	oneOf: z.lazy(() => ruleSetRule.array()).optional(),
-	rules: z.lazy(() => ruleSetRule.array()).optional()
-});
-
-const ruleSetRules = z.array(z.literal("...").or(ruleSetRule).or(falsy));
-export type RuleSetRules = z.infer<typeof ruleSetRules>;
+const ruleSetRules = z.array(
+	z.literal("...").or(ruleSetRule).or(falsy)
+) satisfies z.ZodType<t.RuleSetRules>;
 
 const assetParserDataUrlOptions = z.strictObject({
 	maxSize: z.number().optional()
-});
-export type AssetParserDataUrlOptions = z.infer<
-	typeof assetParserDataUrlOptions
->;
+}) satisfies z.ZodType<t.AssetParserDataUrlOptions>;
 
-const assetParserDataUrl = assetParserDataUrlOptions;
-export type AssetParserDataUrl = z.infer<typeof assetParserDataUrl>;
+const assetParserDataUrl =
+	assetParserDataUrlOptions satisfies z.ZodType<t.AssetParserDataUrl>;
 
 const assetParserOptions = z.strictObject({
 	dataUrlCondition: assetParserDataUrl.optional()
-});
-export type AssetParserOptions = z.infer<typeof assetParserOptions>;
+}) satisfies z.ZodType<t.AssetParserOptions>;
 
-const cssParserNamedExports = z.boolean();
-export type CssParserNamedExports = z.infer<typeof cssParserNamedExports>;
+const cssParserNamedExports =
+	z.boolean() satisfies z.ZodType<t.CssParserNamedExports>;
 
 const cssParserOptions = z.strictObject({
 	namedExports: cssParserNamedExports.optional()
-});
-export type CssParserOptions = z.infer<typeof cssParserOptions>;
+}) satisfies z.ZodType<t.CssParserOptions>;
 
 const cssAutoParserOptions = z.strictObject({
 	namedExports: cssParserNamedExports.optional()
-});
-export type CssAutoParserOptions = z.infer<typeof cssAutoParserOptions>;
+}) satisfies z.ZodType<t.CssAutoParserOptions>;
 
 const cssModuleParserOptions = z.strictObject({
 	namedExports: cssParserNamedExports.optional()
-});
-export type CssModuleParserOptions = z.infer<typeof cssModuleParserOptions>;
+}) satisfies z.ZodType<t.CssModuleParserOptions>;
 
 const dynamicImportMode = z.enum(["eager", "lazy", "weak", "lazy-once"]);
 const dynamicImportPreload = z.union([z.boolean(), z.number()]);
@@ -579,6 +532,7 @@ const dynamicImportFetchPriority = z.enum(["low", "high", "auto"]);
 const javascriptParserUrl = z.union([z.literal("relative"), z.boolean()]);
 const exprContextCritical = z.boolean();
 const wrappedContextCritical = z.boolean();
+const wrappedContextRegExp = z.instanceof(RegExp);
 const exportsPresence = z.enum(["error", "warn", "auto"]).or(z.literal(false));
 const importExportsPresence = z
 	.enum(["error", "warn", "auto"])
@@ -589,6 +543,10 @@ const reexportExportsPresence = z
 const strictExportPresence = z.boolean();
 const worker = z.array(z.string()).or(z.boolean());
 const overrideStrict = z.enum(["strict", "non-strict"]);
+const requireAsExpression = z.boolean();
+const requireDynamic = z.boolean();
+const requireResolve = z.boolean();
+const importDynamic = z.boolean();
 
 const javascriptParserOptions = z.strictObject({
 	dynamicImportMode: dynamicImportMode.optional(),
@@ -599,14 +557,20 @@ const javascriptParserOptions = z.strictObject({
 	url: javascriptParserUrl.optional(),
 	exprContextCritical: exprContextCritical.optional(),
 	wrappedContextCritical: wrappedContextCritical.optional(),
+	wrappedContextRegExp: wrappedContextRegExp.optional(),
 	exportsPresence: exportsPresence.optional(),
 	importExportsPresence: importExportsPresence.optional(),
 	reexportExportsPresence: reexportExportsPresence.optional(),
 	strictExportPresence: strictExportPresence.optional(),
 	worker: worker.optional(),
-	overrideStrict: overrideStrict.optional()
-});
-export type JavascriptParserOptions = z.infer<typeof javascriptParserOptions>;
+	overrideStrict: overrideStrict.optional(),
+	// #region Not available in webpack yet.
+	requireAsExpression: requireAsExpression.optional(),
+	requireDynamic: requireDynamic.optional(),
+	requireResolve: requireResolve.optional(),
+	importDynamic: importDynamic.optional()
+	// #endregion
+}) satisfies z.ZodType<t.JavascriptParserOptions>;
 
 const parserOptionsByModuleTypeKnown = z.strictObject({
 	asset: assetParserOptions.optional(),
@@ -617,70 +581,49 @@ const parserOptionsByModuleTypeKnown = z.strictObject({
 	"javascript/auto": javascriptParserOptions.optional(),
 	"javascript/dynamic": javascriptParserOptions.optional(),
 	"javascript/esm": javascriptParserOptions.optional()
-});
+}) satisfies z.ZodType<t.ParserOptionsByModuleTypeKnown>;
 
-export type ParserOptionsByModuleTypeKnown = z.infer<
-	typeof parserOptionsByModuleTypeKnown
->;
-
-const parserOptionsByModuleTypeUnknown = z.record(z.record(z.any()));
-export type ParserOptionsByModuleTypeUnknown = z.infer<
-	typeof parserOptionsByModuleTypeUnknown
->;
+const parserOptionsByModuleTypeUnknown = z.record(
+	z.record(z.any())
+) satisfies z.ZodType<t.ParserOptionsByModuleTypeUnknown>;
 
 const parserOptionsByModuleType = parserOptionsByModuleTypeKnown.or(
 	parserOptionsByModuleTypeUnknown
-);
-export type ParserOptionsByModuleType = z.infer<
-	typeof parserOptionsByModuleType
->;
+) satisfies z.ZodType<t.ParserOptionsByModuleType>;
 
 const assetGeneratorDataUrlOptions = z.strictObject({
 	encoding: z.literal(false).or(z.literal("base64")).optional(),
 	mimetype: z.string().optional()
-});
-export type AssetGeneratorDataUrlOptions = z.infer<
-	typeof assetGeneratorDataUrlOptions
->;
+}) satisfies z.ZodType<t.AssetGeneratorDataUrlOptions>;
 
 const assetGeneratorDataUrlFunction = z
 	.function()
 	.args(
+		z.instanceof(Buffer),
 		z.strictObject({
-			content: z.string(),
-			filename: z.string()
+			filename: z.string(),
+			module: z.custom<Module>()
 		})
 	)
-	.returns(z.string());
-export type AssetGeneratorDataUrlFunction = z.infer<
-	typeof assetGeneratorDataUrlFunction
->;
+	.returns(z.string()) satisfies z.ZodType<t.AssetGeneratorDataUrlFunction>;
 
 const assetGeneratorDataUrl = assetGeneratorDataUrlOptions.or(
 	assetGeneratorDataUrlFunction
-);
-export type AssetGeneratorDataUrl = z.infer<typeof assetGeneratorDataUrl>;
+) satisfies z.ZodType<t.AssetGeneratorDataUrl>;
 
 const assetInlineGeneratorOptions = z.strictObject({
 	dataUrl: assetGeneratorDataUrl.optional()
-});
-export type AssetInlineGeneratorOptions = z.infer<
-	typeof assetInlineGeneratorOptions
->;
+}) satisfies z.ZodType<t.AssetInlineGeneratorOptions>;
 
 const assetResourceGeneratorOptions = z.strictObject({
 	emit: z.boolean().optional(),
 	filename: filename.optional(),
 	publicPath: publicPath.optional()
-});
-export type AssetResourceGeneratorOptions = z.infer<
-	typeof assetResourceGeneratorOptions
->;
+}) satisfies z.ZodType<t.AssetResourceGeneratorOptions>;
 
 const assetGeneratorOptions = assetInlineGeneratorOptions.merge(
 	assetResourceGeneratorOptions
-);
-export type AssetGeneratorOptions = z.infer<typeof assetGeneratorOptions>;
+) satisfies z.ZodType<t.AssetGeneratorOptions>;
 
 const cssGeneratorExportsConvention = z.enum([
 	"as-is",
@@ -688,45 +631,35 @@ const cssGeneratorExportsConvention = z.enum([
 	"camel-case-only",
 	"dashes",
 	"dashes-only"
-]);
-export type CssGeneratorExportsConvention = z.infer<
-	typeof cssGeneratorExportsConvention
->;
+]) satisfies z.ZodType<t.CssGeneratorExportsConvention>;
 
-const cssGeneratorExportsOnly = z.boolean();
-export type CssGeneratorExportsOnly = z.infer<typeof cssGeneratorExportsOnly>;
+const cssGeneratorExportsOnly =
+	z.boolean() satisfies z.ZodType<t.CssGeneratorExportsOnly>;
 
-const cssGeneratorLocalIdentName = z.string();
-export type CssGeneratorLocalIdentName = z.infer<
-	typeof cssGeneratorLocalIdentName
->;
+const cssGeneratorLocalIdentName =
+	z.string() satisfies z.ZodType<t.CssGeneratorLocalIdentName>;
 
-const cssGeneratorEsModule = z.boolean();
-export type CssGeneratorEsModule = z.infer<typeof cssGeneratorEsModule>;
+const cssGeneratorEsModule =
+	z.boolean() satisfies z.ZodType<t.CssGeneratorEsModule>;
 
 const cssGeneratorOptions = z.strictObject({
 	exportsOnly: cssGeneratorExportsOnly.optional(),
 	esModule: cssGeneratorEsModule.optional()
-});
-export type CssGeneratorOptions = z.infer<typeof cssGeneratorOptions>;
+}) satisfies z.ZodType<t.CssGeneratorOptions>;
 
 const cssAutoGeneratorOptions = z.strictObject({
 	exportsConvention: cssGeneratorExportsConvention.optional(),
 	exportsOnly: cssGeneratorExportsOnly.optional(),
 	localIdentName: cssGeneratorLocalIdentName.optional(),
 	esModule: cssGeneratorEsModule.optional()
-});
-export type CssAutoGeneratorOptions = z.infer<typeof cssAutoGeneratorOptions>;
+}) satisfies z.ZodType<t.CssAutoGeneratorOptions>;
 
 const cssModuleGeneratorOptions = z.strictObject({
 	exportsConvention: cssGeneratorExportsConvention.optional(),
 	exportsOnly: cssGeneratorExportsOnly.optional(),
 	localIdentName: cssGeneratorLocalIdentName.optional(),
 	esModule: cssGeneratorEsModule.optional()
-});
-export type CssModuleGeneratorOptions = z.infer<
-	typeof cssModuleGeneratorOptions
->;
+}) satisfies z.ZodType<t.CssModuleGeneratorOptions>;
 
 const generatorOptionsByModuleTypeKnown = z.strictObject({
 	asset: assetGeneratorOptions.optional(),
@@ -735,29 +668,23 @@ const generatorOptionsByModuleTypeKnown = z.strictObject({
 	css: cssGeneratorOptions.optional(),
 	"css/auto": cssAutoGeneratorOptions.optional(),
 	"css/module": cssModuleGeneratorOptions.optional()
-});
-export type GeneratorOptionsByModuleTypeKnown = z.infer<
-	typeof generatorOptionsByModuleTypeKnown
->;
+}) satisfies z.ZodType<t.GeneratorOptionsByModuleTypeKnown>;
 
-const generatorOptionsByModuleTypeUnknown = z.record(z.record(z.any()));
-export type GeneratorOptionsByModuleTypeUnknown = z.infer<
-	typeof generatorOptionsByModuleTypeUnknown
->;
+const generatorOptionsByModuleTypeUnknown = z.record(
+	z.record(z.any())
+) satisfies z.ZodType<t.GeneratorOptionsByModuleTypeUnknown>;
 
 const generatorOptionsByModuleType = generatorOptionsByModuleTypeKnown.or(
 	generatorOptionsByModuleTypeUnknown
-);
-export type GeneratorOptionsByModuleType = z.infer<
-	typeof generatorOptionsByModuleType
->;
+) satisfies z.ZodType<t.GeneratorOptionsByModuleType>;
 
 const noParseOptionSingle = z
 	.string()
 	.or(z.instanceof(RegExp))
 	.or(z.function().args(z.string()).returns(z.boolean()));
-const noParseOption = noParseOptionSingle.or(z.array(noParseOptionSingle));
-export type NoParseOption = z.infer<typeof noParseOption>;
+const noParseOption = noParseOptionSingle.or(
+	z.array(noParseOptionSingle)
+) satisfies z.ZodType<t.NoParseOption>;
 
 const moduleOptions = z.strictObject({
 	defaultRules: ruleSetRules.optional(),
@@ -765,8 +692,7 @@ const moduleOptions = z.strictObject({
 	parser: parserOptionsByModuleType.optional(),
 	generator: generatorOptionsByModuleType.optional(),
 	noParse: noParseOption.optional()
-});
-export type ModuleOptions = z.infer<typeof moduleOptions>;
+}) satisfies z.ZodType<t.ModuleOptions>;
 //#endregion
 
 //#region Target
@@ -842,8 +768,11 @@ const allowTarget = z.union([
 	)
 ]);
 
-const target = z.union([z.literal(false), allowTarget, allowTarget.array()]);
-export type Target = z.infer<typeof target>;
+const target = z.union([
+	z.literal(false),
+	allowTarget,
+	allowTarget.array()
+]) satisfies z.ZodType<t.Target>;
 //#endregion
 
 //#region ExternalsType
@@ -869,18 +798,61 @@ export const externalsType = z.enum([
 	"import",
 	"module-import",
 	"script",
-	"node-commonjs"
+	"node-commonjs",
+	"commonjs-import"
 ]) satisfies z.ZodType<t.ExternalsType>;
 //#endregion
 
-//#region Externals
+const ZodExternalObjectValue = new ZodRspackCrossChecker<
+	t.ExternalItemUmdValue | t.ExternalItemObjectValue
+>({
+	patterns: [
+		{
+			test: config => {
+				let isLibraryUmd = false;
+				const library = config?.output?.library;
+				if (typeof library === "object" && "type" in library) {
+					isLibraryUmd = library.type === "umd";
+				} else {
+					isLibraryUmd = config?.output?.libraryTarget === "umd";
+				}
+				if (isLibraryUmd) {
+					return (
+						config?.externalsType === undefined ||
+						config?.externalsType === "umd"
+					);
+				}
+				return false;
+			},
+			type: z.strictObject({
+				root: z.string().or(z.string().array()),
+				commonjs: z.string().or(z.string().array()),
+				commonjs2: z.string().or(z.string().array()),
+				amd: z.string().or(z.string().array())
+			}),
+			issue: res => {
+				if ((res as SyncParseReturnType).status === "aborted") {
+					return [
+						{
+							fatal: true,
+							code: ZodIssueCode.custom,
+							message: `External object must have "root", "commonjs", "commonjs2", "amd" properties when "libraryType" or "externalsType" is "umd"`
+						}
+					];
+				}
+				return [];
+			}
+		}
+	],
+	default: z.record(z.string().or(z.string().array()))
+});
+
+// #region Externals
 const externalItemValue = z
 	.string()
 	.or(z.boolean())
 	.or(z.string().array().min(1))
-	.or(
-		z.record(z.string().or(z.string().array()))
-	) satisfies z.ZodType<t.ExternalItemValue>;
+	.or(ZodExternalObjectValue) satisfies z.ZodType<t.ExternalItemValue>;
 
 const externalItemObjectUnknown = z.record(
 	externalItemValue
@@ -892,8 +864,31 @@ const externalItemFunctionData = z.strictObject({
 	request: z.string().optional(),
 	contextInfo: z
 		.strictObject({
-			issuer: z.string()
+			issuer: z.string(),
+			issuerLayer: z.string().or(z.null()).optional()
 		})
+		.optional(),
+	getResolve: z
+		.function()
+		.returns(
+			z
+				.function()
+				.args(z.string(), z.string())
+				.returns(z.promise(z.string()))
+				.or(
+					z
+						.function()
+						.args(
+							z.string(),
+							z.string(),
+							z
+								.function()
+								.args(z.instanceof(Error).optional(), z.string().optional())
+								.returns(z.void())
+						)
+						.returns(z.void())
+				)
+		)
 		.optional()
 }) satisfies z.ZodType<t.ExternalItemFunctionData>;
 
@@ -905,7 +900,7 @@ const externalItem = z
 		z
 			.function()
 			.args(
-				externalItemFunctionData,
+				externalItemFunctionData as z.ZodType<t.ExternalItemFunctionData>,
 				z
 					.function()
 					.args(
@@ -919,14 +914,13 @@ const externalItem = z
 	.or(
 		z
 			.function()
-			.args(externalItemFunctionData)
+			.args(externalItemFunctionData as z.ZodType<t.ExternalItemFunctionData>)
 			.returns(z.promise(externalItemValue))
 	) satisfies z.ZodType<t.ExternalItem>;
 
 const externals = externalItem
 	.array()
 	.or(externalItem) satisfies z.ZodType<t.Externals>;
-//#endregion
 
 //#region ExternalsPresets
 const externalsPresets = z.strictObject({
@@ -938,19 +932,20 @@ const externalsPresets = z.strictObject({
 	electronPreload: z.boolean().optional(),
 	electronRenderer: z.boolean().optional(),
 	nwjs: z.boolean().optional()
-});
-export type ExternalsPresets = z.infer<typeof externalsPresets>;
+}) satisfies z.ZodType<t.ExternalsPresets>;
 //#endregion
 
 //#region InfrastructureLogging
 const filterItemTypes = z
 	.instanceof(RegExp)
 	.or(z.string())
-	.or(z.function().args(z.string()).returns(z.boolean()));
-export type FilterItemTypes = z.infer<typeof filterItemTypes>;
+	.or(
+		z.function().args(z.string()).returns(z.boolean())
+	) satisfies z.ZodType<t.FilterItemTypes>;
 
-const filterTypes = filterItemTypes.array().or(filterItemTypes);
-export type FilterTypes = z.infer<typeof filterTypes>;
+const filterTypes = filterItemTypes
+	.array()
+	.or(filterItemTypes) satisfies z.ZodType<t.FilterTypes>;
 
 const infrastructureLogging = z.strictObject({
 	appendOnly: z.boolean().optional(),
@@ -959,8 +954,7 @@ const infrastructureLogging = z.strictObject({
 	debug: z.boolean().or(filterTypes).optional(),
 	level: z.enum(["none", "error", "warn", "info", "log", "verbose"]).optional(),
 	stream: z.custom<NodeJS.WritableStream>().optional()
-});
-export type InfrastructureLogging = z.infer<typeof infrastructureLogging>;
+}) satisfies z.ZodType<t.InfrastructureLogging>;
 //#endregion
 
 //#region DevTool
@@ -994,8 +988,7 @@ const devTool = z
 			"eval-nosources-cheap-module-source-map",
 			"eval-nosources-source-map"
 		])
-	);
-export type DevTool = z.infer<typeof devTool>;
+	) satisfies z.ZodType<t.DevTool>;
 //#endregion
 
 //#region Node
@@ -1009,24 +1002,21 @@ const nodeOptions = z.strictObject({
 		.or(z.enum(["warn-mock", "mock", "eval-only", "node-module"]))
 		.optional(),
 	global: z.boolean().or(z.literal("warn")).optional()
-});
-export type NodeOptions = z.infer<typeof nodeOptions>;
+}) satisfies z.ZodType<t.NodeOptions>;
 
-const node = z.literal(false).or(nodeOptions);
-export type Node = z.infer<typeof node>;
+const node = z.literal(false).or(nodeOptions) satisfies z.ZodType<t.Node>;
 
-const loader = z.record(z.string(), z.any());
-export type Loader = z.infer<typeof loader>;
+const loader = z.record(z.string(), z.any()) satisfies z.ZodType<t.Loader>;
 //#endregion
 
 //#region Snapshot
-const snapshotOptions = z.strictObject({});
-export type SnapshotOptions = z.infer<typeof snapshotOptions>;
+const snapshotOptions = z.strictObject(
+	{}
+) satisfies z.ZodType<t.SnapshotOptions>;
 //#endregion
 
 //#region Cache
-const cacheOptions = z.boolean();
-export type CacheOptions = z.infer<typeof cacheOptions>;
+const cacheOptions = z.boolean() satisfies z.ZodType<t.CacheOptions>;
 //#endregion
 
 //#region Stats
@@ -1141,45 +1131,26 @@ const statsOptions = z.strictObject({
 	cached: z.boolean().optional(),
 	errorsSpace: z.number().optional(),
 	warningsSpace: z.number().optional()
-});
-export type StatsOptions = z.infer<typeof statsOptions>;
+}) satisfies z.ZodType<t.StatsOptions>;
 
-const statsValue = z.boolean().or(statsPresets).or(statsOptions);
-export type StatsValue = z.infer<typeof statsValue>;
+const statsValue = z
+	.boolean()
+	.or(statsPresets)
+	.or(statsOptions) satisfies z.ZodType<t.StatsValue>;
 //#endregion
 
 //#region Plugins
-export interface RspackPluginInstance {
-	apply: (compiler: Compiler) => void;
-	[k: string]: any;
-}
-export type RspackPluginFunction = (this: Compiler, compiler: Compiler) => void;
-
-// The Compiler type of webpack is not exactly the same as Rspack.
-// It is allowed to use webpack plugins in in the Rspack config,
-// so we have defined a loose type here to adapt to webpack plugins.
-export type WebpackCompiler = any;
-
-export interface WebpackPluginInstance {
-	apply: (compiler: WebpackCompiler) => void;
-	[k: string]: any;
-}
-export type WebpackPluginFunction = (
-	this: WebpackCompiler,
-	compiler: WebpackCompiler
-) => void;
-
 const plugin = z.union([
 	z.custom<
-		| RspackPluginInstance
-		| RspackPluginFunction
-		| WebpackPluginInstance
-		| WebpackPluginFunction
+		| t.RspackPluginInstance
+		| t.RspackPluginFunction
+		| t.WebpackPluginInstance
+		| t.WebpackPluginFunction
 	>(),
 	falsy
-]);
-const plugins = plugin.array();
-export type Plugins = z.infer<typeof plugins>;
+]) satisfies z.ZodType<t.Plugin>;
+
+const plugins = plugin.array() satisfies z.ZodType<t.Plugins>;
 //#endregion
 
 //#region Optimization
@@ -1198,18 +1169,13 @@ const optimizationRuntimeChunk = z
 				)
 				.optional()
 		})
-	);
-export type OptimizationRuntimeChunk = z.infer<typeof optimizationRuntimeChunk>;
+	) satisfies z.ZodType<t.OptimizationRuntimeChunk>;
 
 const optimizationSplitChunksNameFunction = z.function().args(
 	z.instanceof(Module).optional()
 	// FIXME: z.array(z.instanceof(Chunk)).optional(), z.string()
 	// FIXME: Chunk[],   															cacheChunkKey
-);
-
-export type OptimizationSplitChunksNameFunction = z.infer<
-	typeof optimizationSplitChunksNameFunction
->;
+) satisfies z.ZodType<t.OptimizationSplitChunksNameFunction>;
 
 const optimizationSplitChunksName = z
 	.string()
@@ -1252,15 +1218,12 @@ const optimizationSplitChunksCacheGroup = z.strictObject({
 		.optional(),
 	priority: z.number().optional(),
 	enforce: z.boolean().optional(),
-	filename: z.string().optional(),
+	filename: filename.optional(),
 	reuseExistingChunk: z.boolean().optional(),
 	type: z.string().or(z.instanceof(RegExp)).optional(),
 	idHint: z.string().optional(),
 	...sharedOptimizationSplitChunksCacheGroup
-});
-export type OptimizationSplitChunksCacheGroup = z.infer<
-	typeof optimizationSplitChunksCacheGroup
->;
+}) satisfies z.ZodType<t.OptimizationSplitChunksCacheGroup>;
 
 const optimizationSplitChunksOptions = z.strictObject({
 	cacheGroups: z
@@ -1278,14 +1241,13 @@ const optimizationSplitChunksOptions = z.strictObject({
 		.optional(),
 	hidePathInfo: z.boolean().optional(),
 	...sharedOptimizationSplitChunksCacheGroup
-});
-export type OptimizationSplitChunksOptions = z.infer<
-	typeof optimizationSplitChunksOptions
->;
+}) satisfies z.ZodType<t.OptimizationSplitChunksOptions>;
 
 const optimization = z.strictObject({
 	moduleIds: z.enum(["named", "natural", "deterministic"]).optional(),
-	chunkIds: z.enum(["natural", "named", "deterministic"]).optional(),
+	chunkIds: z
+		.enum(["natural", "named", "deterministic", "size", "total-size"])
+		.optional(),
 	minimize: z.boolean().optional(),
 	minimizer: z.literal("...").or(plugin).array().optional(),
 	mergeDuplicateChunks: z.boolean().optional(),
@@ -1301,9 +1263,9 @@ const optimization = z.strictObject({
 	usedExports: z.enum(["global"]).or(z.boolean()).optional(),
 	mangleExports: z.enum(["size", "deterministic"]).or(z.boolean()).optional(),
 	nodeEnv: z.union([z.string(), z.literal(false)]).optional(),
-	emitOnErrors: z.boolean().optional()
-});
-export type Optimization = z.infer<typeof optimization>;
+	emitOnErrors: z.boolean().optional(),
+	avoidEntryIife: z.boolean().optional()
+}) satisfies z.ZodType<t.Optimization>;
 //#endregion
 
 //#region Experiments
@@ -1318,8 +1280,7 @@ const rspackFutureOptions = z.strictObject({
 				.optional()
 		})
 		.optional()
-});
-export type RspackFutureOptions = z.infer<typeof rspackFutureOptions>;
+}) satisfies z.ZodType<t.RspackFutureOptions>;
 
 const listenOptions = z.object({
 	port: z.number().optional(),
@@ -1331,6 +1292,39 @@ const listenOptions = z.object({
 	writableAll: z.boolean().optional(),
 	ipv6Only: z.boolean().optional()
 });
+
+const experimentCacheOptions = z
+	.object({
+		type: z.enum(["memory"])
+	})
+	.or(
+		z.object({
+			type: z.enum(["persistent"]),
+			buildDependencies: z.string().array().optional(),
+			version: z.string().optional(),
+			snapshot: z
+				.object({
+					immutablePaths: z
+						.string()
+						.or(z.instanceof(RegExp))
+						.array()
+						.optional(),
+					unmanagedPaths: z
+						.string()
+						.or(z.instanceof(RegExp))
+						.array()
+						.optional(),
+					managedPaths: z.string().or(z.instanceof(RegExp)).array().optional()
+				})
+				.optional(),
+			storage: z
+				.object({
+					type: z.enum(["filesystem"]),
+					directory: z.string().optional()
+				})
+				.optional()
+		})
+	);
 
 const lazyCompilationOptions = z.object({
 	backend: z
@@ -1346,21 +1340,28 @@ const lazyCompilationOptions = z.object({
 		.instanceof(RegExp)
 		.or(z.function().args(z.custom<Module>()).returns(z.boolean()))
 		.optional()
-});
-export type LazyCompilationOptions = z.infer<typeof lazyCompilationOptions>;
+}) satisfies z.ZodType<t.LazyCompilationOptions>;
 
 const incremental = z.strictObject({
 	make: z.boolean().optional(),
-	emitAssets: z.boolean().optional(),
 	inferAsyncModules: z.boolean().optional(),
 	providedExports: z.boolean().optional(),
-	moduleHashes: z.boolean().optional(),
-	moduleCodegen: z.boolean().optional(),
-	moduleRuntimeRequirements: z.boolean().optional()
-});
-export type Incremental = z.infer<typeof incremental>;
+	dependenciesDiagnostics: z.boolean().optional(),
+	sideEffects: z.boolean().optional(),
+	buildChunkGraph: z.boolean().optional(),
+	moduleIds: z.boolean().optional(),
+	chunkIds: z.boolean().optional(),
+	modulesHashes: z.boolean().optional(),
+	modulesCodegen: z.boolean().optional(),
+	modulesRuntimeRequirements: z.boolean().optional(),
+	chunksRuntimeRequirements: z.boolean().optional(),
+	chunksHashes: z.boolean().optional(),
+	chunksRender: z.boolean().optional(),
+	emitAssets: z.boolean().optional()
+}) satisfies z.ZodType<t.Incremental>;
 
 const experiments = z.strictObject({
+	cache: z.boolean().optional().or(experimentCacheOptions),
 	lazyCompilation: z.boolean().optional().or(lazyCompilationOptions),
 	asyncWebAssembly: z.boolean().optional(),
 	outputModule: z.boolean().optional(),
@@ -1370,13 +1371,11 @@ const experiments = z.strictObject({
 	incremental: z.boolean().or(incremental).optional(),
 	futureDefaults: z.boolean().optional(),
 	rspackFuture: rspackFutureOptions.optional()
-});
-export type Experiments = z.infer<typeof experiments>;
+}) satisfies z.ZodType<t.Experiments>;
 //#endregion
 
 //#region Watch
-const watch = z.boolean();
-export type Watch = z.infer<typeof watch>;
+const watch = z.boolean() satisfies z.ZodType<t.Watch>;
 //#endregion
 
 //#region WatchOptions
@@ -1391,13 +1390,11 @@ const watchOptions = z.strictObject({
 		.optional(),
 	poll: z.number().or(z.boolean()).optional(),
 	stdin: z.boolean().optional()
-});
-export type WatchOptions = z.infer<typeof watchOptions>;
+}) satisfies z.ZodType<t.WatchOptions>;
 //#endregion
 
 //#region DevServer
-export interface DevServer extends webpackDevServer.Configuration {}
-const devServer = z.custom<DevServer>();
+const devServer = z.custom<t.DevServer>();
 //#endregion
 
 //#region IgnoreWarnings
@@ -1409,18 +1406,19 @@ const ignoreWarnings = z
 			.args(z.instanceof(Error), z.custom<Compilation>())
 			.returns(z.boolean())
 	)
-	.array();
-export type IgnoreWarnings = z.infer<typeof ignoreWarnings>;
+	.array() satisfies z.ZodType<t.IgnoreWarnings>;
 //#endregion
 
 //#region Profile
-const profile = z.boolean();
-export type Profile = z.infer<typeof profile>;
+const profile = z.boolean() satisfies z.ZodType<t.Profile>;
+//#endregion
+
+//#region Amd
+const amd = z.literal(false).or(z.record(z.any())) satisfies z.ZodType<t.Amd>;
 //#endregion
 
 //#region Bail
-const bail = z.boolean();
-export type Bail = z.infer<typeof bail>;
+const bail = z.boolean() satisfies z.ZodType<t.Bail>;
 //#endregion
 
 //#region Performance
@@ -1431,8 +1429,7 @@ const performance = z
 		maxAssetSize: z.number().optional(),
 		maxEntrypointSize: z.number().optional()
 	})
-	.or(z.literal(false));
-export type Performance = z.infer<typeof performance>;
+	.or(z.literal(false)) satisfies z.ZodType<t.Performance>;
 //#endregion
 
 export const rspackOptions = z.strictObject({
@@ -1464,8 +1461,7 @@ export const rspackOptions = z.strictObject({
 	devServer: devServer.optional(),
 	module: moduleOptions.optional(),
 	profile: profile.optional(),
+	amd: amd.optional(),
 	bail: bail.optional(),
 	performance: performance.optional()
-});
-export type RspackOptions = z.infer<typeof rspackOptions>;
-export type Configuration = RspackOptions;
+}) satisfies z.ZodType<t.RspackOptions>;

@@ -31,6 +31,7 @@ pub trait ItemUkey {
 }
 
 /// Ukey stands for Unique key
+#[rspack_cacheable::cacheable]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Ukey(u32);
 
@@ -144,18 +145,33 @@ where
     self.inner.entry(id)
   }
 
+  pub fn get_mut(&mut self, id: &<Item as DatabaseItem>::ItemUkey) -> Option<&mut Item> {
+    self.inner.get_mut(id)
+  }
+
+  pub fn get_many_mut<const N: usize>(
+    &mut self,
+    ids: [&<Item as DatabaseItem>::ItemUkey; N],
+  ) -> [Option<&mut Item>; N] {
+    self.inner.get_many_mut(ids)
+  }
+
+  pub fn get(&self, id: &<Item as DatabaseItem>::ItemUkey) -> Option<&Item> {
+    self.inner.get(id)
+  }
+
   pub fn expect_get(&self, id: &<Item as DatabaseItem>::ItemUkey) -> &Item {
     self
       .inner
       .get(id)
-      .unwrap_or_else(|| panic!("Chunk({id:?}) not found in ChunkGroup: {self:?}"))
+      .unwrap_or_else(|| panic!("Item({id:?}) not found in Database"))
   }
 
   pub fn expect_get_mut(&mut self, id: &<Item as DatabaseItem>::ItemUkey) -> &mut Item {
     self
       .inner
       .get_mut(id)
-      .unwrap_or_else(|| panic!("Chunk({id:?}) not found in ChunkGroup"))
+      .unwrap_or_else(|| panic!("Item({id:?}) not found in Database"))
   }
 
   pub fn values(&self) -> impl Iterator<Item = &Item> {
@@ -178,12 +194,6 @@ where
 
   pub fn keys(&self) -> impl Iterator<Item = &<Item as DatabaseItem>::ItemUkey> {
     self.inner.keys()
-  }
-
-  pub fn _todo_should_remove_this_method_inner_mut(
-    &mut self,
-  ) -> &mut HashMap<<Item as DatabaseItem>::ItemUkey, Item, BuildHasherDefault<UkeyHasher>> {
-    &mut self.inner
   }
 
   pub fn into_items(self) -> impl Iterator<Item = Item> {
@@ -210,18 +220,6 @@ where
 {
   pub fn par_values_mut(&mut self) -> impl ParallelIterator<Item = &mut Item> {
     self.values_mut().par_bridge()
-  }
-}
-
-impl<Item: Default + DatabaseItem + 'static> Database<Item>
-where
-  <Item as DatabaseItem>::ItemUkey: Eq + Hash + Debug,
-{
-  pub fn create_default_item(&mut self) -> &mut Item {
-    let item = Item::default();
-    let ukey = item.ukey();
-    self.add(item);
-    self.expect_get_mut(&ukey)
   }
 }
 

@@ -1,18 +1,20 @@
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::{
-  AsContextDependency, Compilation, Dependency, DependencyCategory, DependencyId,
-  DependencyTemplate, DependencyType, ModuleDependency, RealDependencyLocation, RuntimeSpec,
-  TemplateContext, TemplateReplaceSource,
+  AsContextDependency, Compilation, Dependency, DependencyCategory, DependencyId, DependencyRange,
+  DependencyTemplate, DependencyType, ModuleDependency, RuntimeSpec, TemplateContext,
+  TemplateReplaceSource,
 };
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct CssImportDependency {
   id: DependencyId,
   request: String,
-  range: RealDependencyLocation,
+  range: DependencyRange,
 }
 
 impl CssImportDependency {
-  pub fn new(request: String, range: RealDependencyLocation) -> Self {
+  pub fn new(request: String, range: DependencyRange) -> Self {
     Self {
       id: DependencyId::new(),
       request,
@@ -21,6 +23,7 @@ impl CssImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for CssImportDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -34,7 +37,7 @@ impl Dependency for CssImportDependency {
     &DependencyType::CssImport
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -43,6 +46,7 @@ impl Dependency for CssImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for CssImportDependency {
   fn request(&self) -> &str {
     &self.request
@@ -57,6 +61,7 @@ impl ModuleDependency for CssImportDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for CssImportDependency {
   fn apply(
     &self,

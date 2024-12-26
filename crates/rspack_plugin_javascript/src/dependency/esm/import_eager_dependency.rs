@@ -1,7 +1,11 @@
+use rspack_cacheable::{
+  cacheable, cacheable_dyn,
+  with::{AsOption, AsPreset, AsVec},
+};
 use rspack_core::{
   module_namespace_promise, AsContextDependency, Compilation, Dependency, DependencyCategory,
-  DependencyId, DependencyTemplate, DependencyType, ImportAttributes, ModuleDependency,
-  RealDependencyLocation, RuntimeSpec, TemplateContext, TemplateReplaceSource,
+  DependencyId, DependencyRange, DependencyTemplate, DependencyType, ImportAttributes,
+  ModuleDependency, RuntimeSpec, TemplateContext, TemplateReplaceSource,
 };
 use swc_core::ecma::atoms::Atom;
 
@@ -10,11 +14,14 @@ use super::{
   import_dependency::create_import_dependency_referenced_exports,
 };
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct ImportEagerDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   request: Atom,
-  range: RealDependencyLocation,
+  range: DependencyRange,
+  #[cacheable(with=AsOption<AsVec<AsPreset>>)]
   referenced_exports: Option<Vec<Atom>>,
   attributes: Option<ImportAttributes>,
   resource_identifier: String,
@@ -23,7 +30,7 @@ pub struct ImportEagerDependency {
 impl ImportEagerDependency {
   pub fn new(
     request: Atom,
-    range: RealDependencyLocation,
+    range: DependencyRange,
     referenced_exports: Option<Vec<Atom>>,
     attributes: Option<ImportAttributes>,
   ) -> Self {
@@ -40,6 +47,7 @@ impl ImportEagerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for ImportEagerDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -61,7 +69,7 @@ impl Dependency for ImportEagerDependency {
     self.attributes.as_ref()
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -78,6 +86,7 @@ impl Dependency for ImportEagerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for ImportEagerDependency {
   fn request(&self) -> &str {
     &self.request
@@ -92,6 +101,7 @@ impl ModuleDependency for ImportEagerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for ImportEagerDependency {
   fn apply(
     &self,

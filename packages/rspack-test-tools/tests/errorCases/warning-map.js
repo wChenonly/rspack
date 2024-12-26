@@ -25,7 +25,7 @@ module.exports = {
 		  Object {
 		  "index": 0,
 		  "message": "  ⚠ Module parse warning:\\n  ╰─▶   ⚠ Unsupported feature: require.main.require() is not supported by Rspack.\\n         ╭────\\n       1 │ require.main.require('./file');\\n         · ──────────────────────────────\\n         ╰────\\n      \\n",
-		  "moduleIdentifier": "<cwd>packages/rspack-test-tools/tests/fixtures/errors/require.main.require.js",
+		  "moduleIdentifier": "<TEST_TOOLS_ROOT>/tests/fixtures/errors/require.main.require.js",
 		  "name": "ModuleParseWarning",
 		},
 		]

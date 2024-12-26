@@ -14,9 +14,10 @@ module.exports = {
 
 		@@ ... @@
 		-     "asyncWebAssembly": false,
+		+     "asyncWebAssembly": true,
+		@@ ... @@
 		-     "css": undefined,
 		-     "futureDefaults": false,
-		+     "asyncWebAssembly": true,
 		+     "css": false,
 		+     "futureDefaults": true,
 		@@ ... @@
@@ -34,7 +35,8 @@ module.exports = {
 		+         ],
 		+         "test": /\\.wasm$/i,
 		+         "type": "webassembly/async",
-		@@ ... @@
+		+       },
+		+       Object {
 		+         "mimetype": "application/wasm",
 		+         "rules": Array [
 		+           Object {
@@ -47,12 +49,5 @@ module.exports = {
 		+           },
 		+         ],
 		+         "type": "webassembly/async",
-		+       },
-		+       Object {
-		@@ ... @@
-		-     "hashDigestLength": 20,
-		-     "hashFunction": "md4",
-		+     "hashDigestLength": 16,
-		+     "hashFunction": "xxhash64",
 	`)
 };

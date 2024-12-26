@@ -29,6 +29,7 @@ use swc_core::ecma::ast::{
 use swc_core::ecma::ast::{Expr, Ident, Lit, MemberExpr, RestPat};
 use swc_core::ecma::utils::ExprFactory;
 
+use crate::dependency::local_module::LocalModule;
 use crate::parser_plugin::InnerGraphState;
 use crate::parser_plugin::{self, JavaScriptParserPluginDrive, JavascriptParserPlugin};
 use crate::utils::eval::{self, BasicEvaluatedExpression};
@@ -226,7 +227,7 @@ pub struct JavascriptParser<'parser> {
   pub(crate) module_type: &'parser ModuleType,
   pub(crate) module_layer: Option<&'parser ModuleLayer>,
   pub(crate) module_identifier: &'parser ModuleIdentifier,
-  // TODO: remove `is_esm` after `HarmonyExports::isEnabled`
+  // TODO: remove `is_esm` after `ESMExports::isEnabled`
   pub(crate) is_esm: bool,
   pub(crate) in_tagged_template_tag: bool,
   pub(crate) parser_exports_state: Option<bool>,
@@ -240,12 +241,13 @@ pub struct JavascriptParser<'parser> {
   pub(crate) statement_path: Vec<StatementPath>,
   pub(crate) prev_statement: Option<StatementPath>,
   pub(crate) current_tag_info: Option<TagInfoId>,
+  pub(crate) local_modules: Vec<LocalModule>,
   // ===== scope info =======
   pub(crate) in_try: bool,
   pub(crate) in_short_hand: bool,
   pub(super) definitions: ScopeInfoId,
   pub(crate) top_level_scope: TopLevelScope,
-  pub(crate) last_harmony_import_order: i32,
+  pub(crate) last_esm_import_order: i32,
   pub(crate) inner_graph: InnerGraphState,
 }
 
@@ -285,11 +287,14 @@ impl<'parser> JavascriptParser<'parser> {
     plugins.push(Box::new(
       parser_plugin::RequireContextDependencyParserPlugin,
     ));
+    plugins.push(Box::new(
+      parser_plugin::RequireEnsureDependenciesBlockParserPlugin,
+    ));
     plugins.push(Box::new(parser_plugin::CompatibilityPlugin));
 
     if module_type.is_js_auto() || module_type.is_js_esm() {
-      plugins.push(Box::new(parser_plugin::HarmonyTopLevelThisParserPlugin));
-      plugins.push(Box::new(parser_plugin::HarmonyDetectionParserPlugin::new(
+      plugins.push(Box::new(parser_plugin::ESMTopLevelThisParserPlugin));
+      plugins.push(Box::new(parser_plugin::ESMDetectionParserPlugin::new(
         compiler_options.experiments.top_level_await,
       )));
       plugins.push(Box::new(
@@ -301,8 +306,16 @@ impl<'parser> JavascriptParser<'parser> {
         plugins.push(Box::new(parser_plugin::ImportMetaDisabledPlugin));
       }
 
-      plugins.push(Box::new(parser_plugin::HarmonyImportDependencyParserPlugin));
-      plugins.push(Box::new(parser_plugin::HarmonyExportDependencyParserPlugin));
+      plugins.push(Box::new(parser_plugin::ESMImportDependencyParserPlugin));
+      plugins.push(Box::new(parser_plugin::ESMExportDependencyParserPlugin));
+    }
+
+    if compiler_options.amd.is_some() && (module_type.is_js_auto() || module_type.is_js_dynamic()) {
+      plugins.push(Box::new(
+        parser_plugin::AMDRequireDependenciesBlockParserPlugin,
+      ));
+      plugins.push(Box::new(parser_plugin::AMDDefineDependencyParserPlugin));
+      plugins.push(Box::new(parser_plugin::RequireJsStuffPlugin));
     }
 
     if module_type.is_js_auto() || module_type.is_js_dynamic() {
@@ -347,7 +360,7 @@ impl<'parser> JavascriptParser<'parser> {
     let mut db = ScopeInfoDB::new();
 
     Self {
-      last_harmony_import_order: 0,
+      last_esm_import_order: 0,
       comments,
       javascript_options,
       source_map,
@@ -385,7 +398,27 @@ impl<'parser> JavascriptParser<'parser> {
       inner_graph: InnerGraphState::new(),
       additional_data,
       parse_meta,
+      local_modules: Default::default(),
     }
+  }
+
+  pub fn add_local_module(&mut self, name: &str) -> LocalModule {
+    let m = LocalModule::new(name.into(), self.local_modules.len());
+    self.local_modules.push(m.clone());
+    m
+  }
+
+  pub fn get_local_module(&self, name: &str) -> Option<LocalModule> {
+    for m in self.local_modules.iter() {
+      if m.get_name() == name {
+        return Some(m.clone());
+      }
+    }
+    None
+  }
+
+  pub fn get_local_module_mut(&mut self, name: &str) -> Option<&mut LocalModule> {
+    self.local_modules.iter_mut().find(|m| m.get_name() == name)
   }
 
   pub fn is_asi_position(&self, pos: BytePos) -> bool {
@@ -479,7 +512,7 @@ impl<'parser> JavascriptParser<'parser> {
     self.definitions_db.set(definitions, name, info);
   }
 
-  fn set_variable(&mut self, name: String, variable: String) {
+  pub fn set_variable(&mut self, name: String, variable: String) {
     let id = self.definitions;
     if name == variable {
       self.definitions_db.delete(id, &name);
@@ -878,7 +911,7 @@ impl<'parser> JavascriptParser<'parser> {
     current_scope.is_strict = value;
   }
 
-  fn detect_mode(&mut self, stmts: &[Stmt]) {
+  pub fn detect_mode(&mut self, stmts: &[Stmt]) {
     let Some(Lit::Str(str)) = stmts
       .first()
       .and_then(|stmt| stmt.as_expr())
@@ -910,7 +943,7 @@ impl<'parser> JavascriptParser<'parser> {
   }
 }
 
-impl<'parser> JavascriptParser<'parser> {
+impl JavascriptParser<'_> {
   pub fn evaluate_expression(&mut self, expr: &Expr) -> BasicEvaluatedExpression {
     match self.evaluating(expr) {
       Some(evaluated) => evaluated,

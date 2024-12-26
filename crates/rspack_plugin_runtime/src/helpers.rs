@@ -2,9 +2,10 @@ use std::hash::Hash;
 
 use rspack_collections::{IdentifierLinkedMap, UkeyIndexSet};
 use rspack_core::{
-  get_chunk_from_ukey, get_chunk_group_from_ukey, get_js_chunk_filename_template,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
-  Chunk, ChunkGroupByUkey, ChunkGroupUkey, ChunkUkey, Compilation, PathData, RuntimeGlobals,
+  get_js_chunk_filename_template,
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
+  Chunk, ChunkGraph, ChunkGroupByUkey, ChunkGroupUkey, ChunkUkey, Compilation, PathData,
+  RuntimeGlobals, SourceType,
 };
 use rspack_error::{error, Result};
 use rspack_hash::RspackHash;
@@ -21,17 +22,16 @@ pub fn update_hash_for_entry_startup(
     if let Some(module_id) = compilation
       .get_module_graph()
       .module_graph_module_by_identifier(module)
-      .map(|module| {
-        compilation
-          .chunk_graph
-          .get_module_id(module.module_identifier)
-          .unwrap_or("null")
+      .and_then(|module| {
+        ChunkGraph::get_module_id(&compilation.module_ids_artifact, module.module_identifier)
       })
     {
       module_id.hash(hasher);
     }
 
-    if let Some(runtime_chunk) = get_chunk_group_from_ukey(entry, &compilation.chunk_group_by_ukey)
+    if let Some(runtime_chunk) = compilation
+      .chunk_group_by_ukey
+      .get(entry)
       .map(|e| e.get_runtime_chunk(&compilation.chunk_group_by_ukey))
     {
       for chunk_ukey in get_all_chunks(
@@ -40,8 +40,8 @@ pub fn update_hash_for_entry_startup(
         Some(&runtime_chunk),
         &compilation.chunk_group_by_ukey,
       ) {
-        if let Some(chunk) = get_chunk_from_ukey(&chunk_ukey, &compilation.chunk_by_ukey) {
-          chunk.id.hash(hasher);
+        if let Some(chunk) = compilation.chunk_by_ukey.get(&chunk_ukey) {
+          chunk.id(&compilation.chunk_ids_artifact).hash(hasher);
         }
       }
     }
@@ -62,7 +62,7 @@ pub fn get_all_chunks(
     exclude_chunk2: Option<&ChunkUkey>,
     visit_chunk_groups: &mut UkeyIndexSet<ChunkGroupUkey>,
   ) {
-    if let Some(entrypoint) = get_chunk_group_from_ukey(entrypoint_ukey, chunk_group_by_ukey) {
+    if let Some(entrypoint) = chunk_group_by_ukey.get(entrypoint_ukey) {
       for chunk in &entrypoint.chunks {
         if chunk == exclude_chunk1 {
           continue;
@@ -80,7 +80,7 @@ pub fn get_all_chunks(
           continue;
         }
         visit_chunk_groups.insert(*parent);
-        if let Some(chunk_group) = get_chunk_group_from_ukey(parent, chunk_group_by_ukey) {
+        if let Some(chunk_group) = chunk_group_by_ukey.get(parent) {
           if chunk_group.is_initial() {
             add_chunks(
               chunk_group_by_ukey,
@@ -149,9 +149,8 @@ pub fn generate_entry_startup(
       .get_module_graph()
       .module_graph_module_by_identifier(module)
       .map(|module| {
-        compilation
-          .chunk_graph
-          .get_module_id(module.module_identifier)
+        ChunkGraph::get_module_id(&compilation.module_ids_artifact, module.module_identifier)
+          .map(|s| s.as_str())
           .unwrap_or("null")
       })
     {
@@ -159,7 +158,9 @@ pub fn generate_entry_startup(
       module_id_exprs.push(module_id_expr);
     }
 
-    if let Some(runtime_chunk) = get_chunk_group_from_ukey(entry, &compilation.chunk_group_by_ukey)
+    if let Some(runtime_chunk) = compilation
+      .chunk_group_by_ukey
+      .get(entry)
       .map(|e| e.get_runtime_chunk(&compilation.chunk_group_by_ukey))
     {
       let chunks = get_all_chunks(
@@ -173,7 +174,7 @@ pub fn generate_entry_startup(
           .iter()
           .map(|chunk_ukey| {
             let chunk = compilation.chunk_by_ukey.expect_get(chunk_ukey);
-            chunk.expect_id().to_string()
+            chunk.expect_id(&compilation.chunk_ids_artifact).clone()
           })
           .collect::<HashSet<_>>(),
       );
@@ -219,7 +220,7 @@ pub fn generate_entry_startup(
     }
   }
 
-  RawSource::from(source).boxed()
+  RawStringSource::from(source).boxed()
 }
 
 /**
@@ -245,17 +246,33 @@ pub fn get_relative_path(base_chunk_output_name: &str, other_chunk_output_name: 
 }
 
 pub fn get_chunk_output_name(chunk: &Chunk, compilation: &Compilation) -> Result<String> {
-  let hash = chunk.get_render_hash(compilation.options.output.hash_digest_length);
+  let hash = chunk.rendered_hash(
+    &compilation.chunk_hashes_artifact,
+    compilation.options.output.hash_digest_length,
+  );
   let filename = get_js_chunk_filename_template(
     chunk,
     &compilation.options.output,
     &compilation.chunk_group_by_ukey,
   );
   compilation.get_path(
-    filename,
+    &filename,
     PathData::default()
-      .chunk(chunk)
-      .content_hash_optional(hash)
+      .chunk_id_optional(
+        chunk
+          .id(&compilation.chunk_ids_artifact)
+          .map(|id| id.as_str()),
+      )
+      .chunk_hash_optional(chunk.rendered_hash(
+        &compilation.chunk_hashes_artifact,
+        compilation.options.output.hash_digest_length,
+      ))
+      .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+      .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+        &compilation.chunk_hashes_artifact,
+        &SourceType::JavaScript,
+        compilation.options.output.hash_digest_length,
+      ))
       .hash_optional(hash),
   )
 }
@@ -264,8 +281,5 @@ pub fn get_chunk_runtime_requirements<'a>(
   compilation: &'a Compilation,
   chunk_ukey: &ChunkUkey,
 ) -> &'a RuntimeGlobals {
-  &compilation
-    .chunk_graph
-    .get_chunk_graph_chunk(chunk_ukey)
-    .runtime_requirements
+  ChunkGraph::get_chunk_runtime_requirements(compilation, chunk_ukey)
 }

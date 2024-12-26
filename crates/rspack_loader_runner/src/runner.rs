@@ -1,7 +1,7 @@
 use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
 use rspack_error::{error, IntoTWithDiagnosticArray, Result, TWithDiagnosticArray};
-use rspack_fs::ReadableFileSystem;
+use rspack_fs::FileSystem;
 use rspack_sources::SourceMap;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use tokio::task::spawn_blocking;
@@ -27,7 +27,7 @@ impl<Context> LoaderContext<Context> {
 
 async fn process_resource<Context: Send>(
   loader_context: &mut LoaderContext<Context>,
-  fs: Arc<dyn ReadableFileSystem>,
+  fs: Arc<dyn FileSystem>,
 ) -> Result<()> {
   if let Some(plugin) = &loader_context.plugin
     && let Some(processed_resource) = plugin
@@ -44,7 +44,7 @@ async fn process_resource<Context: Send>(
     {
       let resource_path_owned = resource_path.to_owned();
       // use spawn_blocking to avoid block,see https://docs.rs/tokio/latest/src/tokio/fs/read.rs.html#48
-      let result = spawn_blocking(move || fs.read(resource_path_owned.as_std_path()))
+      let result = spawn_blocking(move || fs.read(resource_path_owned.as_path()))
         .await
         .map_err(|e| error!("{e}, spawn task failed"))?;
       let result = result.map_err(|e| error!("{e}, failed to read {resource_path}"))?;
@@ -63,7 +63,7 @@ You may need an additional plugin to handle "{scheme}:" URIs."#
   Ok(())
 }
 
-async fn create_loader_context<Context: 'static>(
+async fn create_loader_context<Context>(
   loader_items: Vec<LoaderItem<Context>>,
   resource_data: Arc<ResourceData>,
   plugin: Option<Arc<dyn LoaderRunnerPlugin<Context = Context>>>,
@@ -103,12 +103,12 @@ async fn create_loader_context<Context: 'static>(
   Ok(loader_context)
 }
 
-pub async fn run_loaders<Context: 'static + Send>(
+pub async fn run_loaders<Context: Send>(
   loaders: Vec<Arc<dyn Loader<Context>>>,
   resource_data: Arc<ResourceData>,
   plugins: Option<Arc<dyn LoaderRunnerPlugin<Context = Context>>>,
   context: Context,
-  fs: Arc<dyn ReadableFileSystem>,
+  fs: Arc<dyn FileSystem>,
 ) -> Result<TWithDiagnosticArray<LoaderResult>> {
   let loaders = loaders
     .into_iter()
@@ -239,6 +239,7 @@ mod test {
   use std::{cell::RefCell, sync::Arc};
 
   use once_cell::sync::OnceCell;
+  use rspack_cacheable::{cacheable, cacheable_dyn};
   use rspack_collections::{Identifiable, Identifier};
   use rspack_error::Result;
   use rspack_fs::NativeFileSystem;
@@ -271,6 +272,7 @@ mod test {
       static IDENTS: RefCell<Vec<String>> = RefCell::default();
     }
 
+    #[cacheable]
     struct Pitching;
 
     impl Identifiable for Pitching {
@@ -279,6 +281,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Pitching {
       async fn pitch(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -287,6 +290,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct Pitching2;
 
     impl Identifiable for Pitching2 {
@@ -295,6 +299,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Pitching2 {
       async fn pitch(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -303,6 +308,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct Normal;
 
     impl Identifiable for Normal {
@@ -311,6 +317,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal {
       async fn run(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -319,6 +326,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct Normal2;
 
     impl Identifiable for Normal2 {
@@ -327,6 +335,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal2 {
       async fn run(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -335,6 +344,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct PitchNormalBase;
 
     impl Identifiable for PitchNormalBase {
@@ -343,6 +353,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for PitchNormalBase {
       async fn run(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -356,6 +367,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct PitchNormal;
 
     impl Identifiable for PitchNormal {
@@ -364,6 +376,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for PitchNormal {
       async fn run(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -378,6 +391,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct PitchNormal2;
 
     impl Identifiable for PitchNormal2 {
@@ -386,6 +400,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for PitchNormal2 {
       async fn run(&self, _loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -463,6 +478,7 @@ mod test {
 
   #[tokio::test]
   async fn should_able_to_consume_additional_data() {
+    #[cacheable]
     struct Normal;
 
     impl Identifiable for Normal {
@@ -471,6 +487,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal {
       async fn run(&self, loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -486,6 +503,7 @@ mod test {
       }
     }
 
+    #[cacheable]
     struct Normal2;
 
     impl Identifiable for Normal2 {
@@ -494,6 +512,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal2 {
       async fn run(&self, loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -530,6 +549,7 @@ mod test {
 
   #[tokio::test]
   async fn should_override_data_if_finish_with_is_not_called() {
+    #[cacheable]
     struct Normal;
 
     impl Identifiable for Normal {
@@ -538,6 +558,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal {
       async fn run(&self, loader_context: &mut LoaderContext<()>) -> Result<()> {
@@ -560,6 +581,7 @@ mod test {
       encoded_content: None,
     });
 
+    #[cacheable]
     struct Normal2;
 
     impl Identifiable for Normal2 {
@@ -568,6 +590,7 @@ mod test {
       }
     }
 
+    #[cacheable_dyn]
     #[async_trait::async_trait]
     impl Loader<()> for Normal2 {
       async fn run(&self, loader_context: &mut LoaderContext<()>) -> Result<()> {

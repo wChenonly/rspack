@@ -1,6 +1,7 @@
 use rspack_collections::Identifiable;
 use rspack_core::{
-  to_identifier, ChunkUkey, Compilation, ExternalModule, ExternalRequest, LibraryOptions,
+  to_identifier, ChunkGraph, ChunkUkey, Compilation, ExternalModule, ExternalRequest,
+  LibraryOptions,
 };
 use rspack_error::{error, Result};
 
@@ -13,7 +14,10 @@ pub fn externals_dep_array(modules: &[&ExternalModule]) -> Result<String> {
         ExternalRequest::Map(map) => map.get("amd").map(|r| r.primary()),
       })
     })
-    .collect::<Result<Vec<_>>>()?;
+    .collect::<Result<Vec<_>>>()?
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
   serde_json::to_string(&value).map_err(|e| error!(e.to_string()))
 }
 
@@ -24,11 +28,9 @@ fn inner_external_arguments(modules: &[&ExternalModule], compilation: &Compilati
       format!(
         "__WEBPACK_EXTERNAL_MODULE_{}__",
         to_identifier(
-          compilation
-            .get_module_graph()
-            .module_graph_module_by_identifier(&m.identifier())
-            .expect("Module not found")
-            .id(&compilation.chunk_graph)
+          ChunkGraph::get_module_id(&compilation.module_ids_artifact, m.identifier())
+            .map(|s| s.as_str())
+            .expect("should have module id")
         )
       )
     })
@@ -48,7 +50,7 @@ pub fn external_module_names(
 
 pub fn get_options_for_chunk<'a>(
   compilation: &'a Compilation,
-  chunk_ukey: &'a ChunkUkey,
+  chunk_ukey: &ChunkUkey,
 ) -> Option<&'a LibraryOptions> {
   if compilation
     .chunk_graph

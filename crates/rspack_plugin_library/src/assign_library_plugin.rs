@@ -2,6 +2,7 @@ use std::hash::Hash;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use rspack_collections::DatabaseItem;
 use rspack_core::rspack_sources::SourceExt;
 use rspack_core::{
   get_entry_runtime, property_access, ApplyContext, BoxModule, ChunkUkey,
@@ -11,7 +12,7 @@ use rspack_core::{
   RuntimeGlobals, UsageState,
 };
 use rspack_core::{
-  rspack_sources::{ConcatSource, RawSource},
+  rspack_sources::{ConcatSource, RawStringSource},
   to_identifier, Chunk, Compilation, LibraryOptions, PathData, Plugin, PluginContext, SourceType,
 };
 use rspack_error::{error, error_bail, Result};
@@ -128,7 +129,7 @@ impl AssignLibraryPlugin {
   fn get_options_for_chunk<'a>(
     &self,
     compilation: &'a Compilation,
-    chunk_ukey: &'a ChunkUkey,
+    chunk_ukey: &ChunkUkey,
   ) -> Result<Option<AssignLibraryPluginParsed<'a>>> {
     get_options_for_chunk(compilation, chunk_ukey)
       .filter(|library| library.library_type == self.options.library_type)
@@ -156,12 +157,24 @@ impl AssignLibraryPlugin {
         compilation
           .get_path(
             &FilenameTemplate::from(v.to_owned()),
-            PathData::default().chunk(chunk).content_hash_optional(
-              chunk
-                .content_hash
-                .get(&SourceType::JavaScript)
-                .map(|i| i.rendered(compilation.options.output.hash_digest_length)),
-            ),
+            PathData::default()
+              .chunk_id_optional(
+                chunk
+                  .id(&compilation.chunk_ids_artifact)
+                  .map(|id| id.as_str()),
+              )
+              .chunk_hash_optional(chunk.rendered_hash(
+                &compilation.chunk_hashes_artifact,
+                compilation.options.output.hash_digest_length,
+              ))
+              .chunk_name_optional(
+                chunk.name_for_filename_template(&compilation.chunk_ids_artifact),
+              )
+              .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+                &compilation.chunk_hashes_artifact,
+                &SourceType::JavaScript,
+                compilation.options.output.hash_digest_length,
+              )),
           )
           .always_ok()
       };
@@ -216,7 +229,7 @@ fn render(
       );
     }
     let mut source = ConcatSource::default();
-    source.add(RawSource::from(format!("var {base};\n")));
+    source.add(RawStringSource::from(format!("var {base};\n")));
     source.add(render_source.source.clone());
     render_source.source = source.boxed();
     return Ok(());
@@ -245,29 +258,29 @@ fn render_startup(
     .unwrap_or_default();
   if matches!(self.options.unnamed, Unnamed::Static) {
     let export_target = access_with_init(&full_name_resolved, self.options.prefix.len(), true);
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "Object.defineProperty({export_target}, '__esModule', {{ value: true }});\n",
     )));
   } else if self.is_copy(&options) {
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "var __webpack_export_target__ = {};\n",
       access_with_init(&full_name_resolved, self.options.prefix.len(), true)
     )));
     let mut exports = "__webpack_exports__";
     if !export_access.is_empty() {
-      source.add(RawSource::from(format!(
+      source.add(RawStringSource::from(format!(
         "var __webpack_exports_export__ = __webpack_exports__{export_access};\n"
       )));
       exports = "__webpack_exports_export__";
     }
-    source.add(RawSource::from(format!(
-      "for(var i in {exports}) __webpack_export_target__[i] = {exports}[i];\n"
+    source.add(RawStringSource::from(format!(
+      "for(var __webpack_i__ in {exports}) __webpack_export_target__[__webpack_i__] = {exports}[__webpack_i__];\n"
     )));
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "if({exports}.__esModule) Object.defineProperty(__webpack_export_target__, '__esModule', {{ value: true }});\n"
     )));
   } else {
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       "{} = __webpack_exports__{export_access};\n",
       access_with_init(&full_name_resolved, self.options.prefix.len(), false)
     )));
@@ -309,12 +322,12 @@ fn embed_in_runtime_bailout(
   module: &BoxModule,
   chunk: &Chunk,
 ) -> Result<Option<String>> {
-  let Some(options) = self.get_options_for_chunk(compilation, &chunk.ukey)? else {
+  let Some(options) = self.get_options_for_chunk(compilation, &chunk.ukey())? else {
     return Ok(None);
   };
   let codegen = compilation
     .code_generation_results
-    .get(&module.identifier(), Some(&chunk.runtime));
+    .get(&module.identifier(), Some(chunk.runtime()));
   let top_level_decls = codegen
     .data
     .get::<CodeGenerationDataTopLevelDeclarations>()
@@ -401,20 +414,14 @@ async fn finish_modules(&self, compilation: &mut Compilation) -> Result<()> {
   }
 
   for (runtime, export, module_identifier) in runtime_info {
+    let mut module_graph = compilation.get_module_graph_mut();
     if let Some(export) = export {
-      let exports_info = compilation
-        .get_module_graph_mut()
-        .get_export_info(module_identifier, &(export.as_str()).into());
-      exports_info.set_used(
-        &mut compilation.get_module_graph_mut(),
-        UsageState::Used,
-        Some(&runtime),
-      );
+      let export_info = module_graph.get_export_info(module_identifier, &(export.as_str()).into());
+      export_info.set_used(&mut module_graph, UsageState::Used, Some(&runtime));
+      export_info.set_can_mangle_use(&mut module_graph, Some(false));
     } else {
-      let exports_info = compilation
-        .get_module_graph()
-        .get_exports_info(&module_identifier);
-      exports_info.set_used_in_unknown_way(&mut compilation.get_module_graph_mut(), Some(&runtime));
+      let exports_info = module_graph.get_exports_info(&module_identifier);
+      exports_info.set_used_in_unknown_way(&mut module_graph, Some(&runtime));
     }
   }
   Ok(())

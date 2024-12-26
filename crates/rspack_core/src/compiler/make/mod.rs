@@ -1,10 +1,9 @@
-mod cutout;
+pub mod cutout;
 pub mod repair;
-
-use std::path::PathBuf;
 
 use rspack_collections::IdentifierSet;
 use rspack_error::{Diagnostic, Result};
+use rspack_paths::ArcPath;
 use rustc_hash::FxHashSet as HashSet;
 
 use self::{cutout::Cutout, repair::repair};
@@ -19,13 +18,18 @@ pub struct MakeArtifact {
   // should be reset when rebuild
   pub diagnostics: Vec<Diagnostic>,
   pub has_module_graph_change: bool,
+  pub built_modules: IdentifierSet,
+  pub revoked_modules: IdentifierSet,
+  // Field to mark whether artifact has been initialized.
+  // Only Default::default() is false, `update_module_graph` will set this field to true
+  // Persistent cache will update MakeArtifact when this is false.
+  pub initialized: bool,
 
   // data
-  pub built_modules: IdentifierSet,
   pub make_failed_dependencies: HashSet<BuildDependency>,
   pub make_failed_module: IdentifierSet,
   pub module_graph_partial: ModuleGraphPartial,
-  entry_dependencies: HashSet<DependencyId>,
+  pub entry_dependencies: HashSet<DependencyId>,
   pub file_dependencies: FileCounter,
   pub context_dependencies: FileCounter,
   pub missing_dependencies: FileCounter,
@@ -52,10 +56,6 @@ impl MakeArtifact {
     std::mem::take(&mut self.diagnostics)
   }
 
-  pub fn take_built_modules(&mut self) -> IdentifierSet {
-    std::mem::take(&mut self.built_modules)
-  }
-
   fn revoke_module(&mut self, module_identifier: &ModuleIdentifier) -> Vec<BuildDependency> {
     let mut module_graph = ModuleGraph::new(vec![], Some(&mut self.module_graph_partial));
     let module = module_graph
@@ -75,6 +75,7 @@ impl MakeArtifact {
         .build_dependencies
         .remove_batch_file(&build_info.build_dependencies);
     }
+    self.revoked_modules.insert(*module_identifier);
     module_graph.revoke_module(module_identifier)
   }
 
@@ -91,13 +92,13 @@ pub enum MakeParam {
   BuildEntry(HashSet<DependencyId>),
   BuildEntryAndClean(HashSet<DependencyId>),
   CheckNeedBuild,
-  ModifiedFiles(HashSet<PathBuf>),
-  RemovedFiles(HashSet<PathBuf>),
+  ModifiedFiles(HashSet<ArcPath>),
+  RemovedFiles(HashSet<ArcPath>),
   ForceBuildDeps(HashSet<BuildDependency>),
   ForceBuildModules(IdentifierSet),
 }
 
-pub fn make_module_graph(
+pub async fn make_module_graph(
   compilation: &Compilation,
   mut artifact: MakeArtifact,
 ) -> Result<MakeArtifact> {
@@ -132,21 +133,25 @@ pub fn make_module_graph(
 
   // reset temporary data
   artifact.built_modules = Default::default();
+  artifact.revoked_modules = Default::default();
   artifact.diagnostics = Default::default();
-  artifact.has_module_graph_change = false;
+  if artifact.initialized {
+    artifact.has_module_graph_change = false;
+  }
 
-  artifact = update_module_graph(compilation, artifact, params)?;
+  artifact = update_module_graph(compilation, artifact, params).await?;
   Ok(artifact)
 }
 
-pub fn update_module_graph(
+pub async fn update_module_graph(
   compilation: &Compilation,
   mut artifact: MakeArtifact,
   params: Vec<MakeParam>,
 ) -> Result<MakeArtifact> {
+  artifact.initialized = true;
   let mut cutout = Cutout::default();
   let build_dependencies = cutout.cutout_artifact(&mut artifact, params);
-  artifact = repair(compilation, artifact, build_dependencies)?;
+  artifact = repair(compilation, artifact, build_dependencies).await?;
   cutout.fix_artifact(&mut artifact);
   Ok(artifact)
 }

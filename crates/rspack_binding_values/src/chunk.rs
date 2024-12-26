@@ -1,151 +1,309 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, ptr::NonNull};
 
+use napi::{bindgen_prelude::ToNapiValue, Either, Env, JsString};
 use napi_derive::napi;
-use rspack_core::{Chunk, ChunkUkey, Compilation};
+use rspack_core::{Chunk, ChunkUkey, Compilation, CompilationId};
+use rspack_napi::OneShotRef;
 
-use crate::JsCompilation;
+use crate::JsChunkGroupWrapper;
 
-#[napi(object)]
+#[napi]
 pub struct JsChunk {
-  #[napi(js_name = "__inner_ukey")]
-  pub inner_ukey: u32, // ChunkUkey
-  #[napi(js_name = "__inner_groups")]
-  pub inner_groups: Vec<u32>,
-  pub name: Option<String>,
-  pub id: Option<String>,
-  pub ids: Vec<String>,
-  pub id_name_hints: Vec<String>,
-  pub filename_template: Option<String>,
-  pub css_filename_template: Option<String>,
-  pub files: Vec<String>,
-  pub runtime: Vec<String>,
-  pub hash: Option<String>,
-  pub content_hash: HashMap<String, String>,
-  pub rendered_hash: Option<String>,
-  pub chunk_reason: Option<String>,
-  pub auxiliary_files: Vec<String>,
+  pub(crate) chunk_ukey: ChunkUkey,
+  compilation: NonNull<Compilation>,
 }
 
 impl JsChunk {
-  pub fn from(chunk: &rspack_core::Chunk) -> Self {
-    let Chunk {
-      // not implement yet
-      ukey: _ukey,
-      prevent_integration: _prevent_integration,
-      groups: _groups,
-      kind: _kind,
-
-      // used in js chunk
-      name,
-      filename_template,
-      css_filename_template,
-      id,
-      ids,
-      id_name_hints,
-      files,
-      auxiliary_files,
-      runtime,
-      hash,
-      rendered_hash,
-      content_hash,
-      chunk_reason,
-      ..
-    } = chunk;
-    let mut files = Vec::from_iter(files.iter().cloned());
-    files.sort_unstable();
-    let mut auxiliary_files = auxiliary_files.iter().cloned().collect::<Vec<_>>();
-    auxiliary_files.sort_unstable();
-    let mut runtime = Vec::<String>::from_iter(runtime.clone().into_iter().map(|r| r.to_string()));
-    runtime.sort_unstable();
-
-    Self {
-      inner_ukey: chunk.ukey.as_u32(),
-      inner_groups: chunk.groups.iter().map(|ukey| ukey.as_u32()).collect(),
-      name: name.clone(),
-      id: id.clone(),
-      ids: ids.clone(),
-      id_name_hints: Vec::from_iter(id_name_hints.clone()),
-      filename_template: filename_template
-        .as_ref()
-        .and_then(|f| Some(f.template()?.to_string())),
-      css_filename_template: css_filename_template
-        .as_ref()
-        .and_then(|f| Some(f.template()?.to_string())),
-      files,
-      runtime,
-      hash: hash.as_ref().map(|d| d.encoded().to_string()),
-      content_hash: content_hash
-        .iter()
-        .map(|(key, v)| (key.to_string(), v.encoded().to_string()))
-        .collect::<std::collections::HashMap<String, String>>(),
-      rendered_hash: rendered_hash.as_ref().map(|hash| hash.to_string()),
-      chunk_reason: chunk_reason.clone(),
-      auxiliary_files,
+  fn as_ref(&self) -> napi::Result<(&'static Compilation, &'static Chunk)> {
+    let compilation = unsafe { self.compilation.as_ref() };
+    if let Some(chunk) = compilation.chunk_by_ukey.get(&self.chunk_ukey) {
+      Ok((compilation, chunk))
+    } else {
+      Err(napi::Error::from_reason(format!(
+        "Unable to access chunk with id = {:?} now. The module have been removed on the Rust side.",
+        self.chunk_ukey
+      )))
     }
   }
 }
 
-fn chunk(ukey: u32, compilation: &Compilation) -> &Chunk {
-  let ukey = ChunkUkey::from(ukey);
-  compilation.chunk_by_ukey.expect_get(&ukey)
+#[napi]
+impl JsChunk {
+  #[napi(getter)]
+  pub fn name(&self) -> napi::Result<Either<&str, ()>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(match chunk.name() {
+      Some(name) => Either::A(name),
+      None => Either::B(()),
+    })
+  }
+
+  #[napi(getter)]
+  pub fn id(&self) -> napi::Result<Either<&str, ()>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(match chunk.id(&compilation.chunk_ids_artifact) {
+      Some(id) => Either::A(id.as_str()),
+      None => Either::B(()),
+    })
+  }
+
+  #[napi(getter)]
+  pub fn ids(&self) -> napi::Result<Vec<&str>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      chunk
+        .id(&compilation.chunk_ids_artifact)
+        .map(|id| vec![id.as_str()])
+        .unwrap_or_default(),
+    )
+  }
+
+  #[napi(getter)]
+  pub fn id_name_hints(&self, env: Env) -> napi::Result<Vec<JsString>> {
+    let (_, chunk) = self.as_ref()?;
+    chunk
+      .id_name_hints()
+      .iter()
+      .map(|s| env.create_string(s))
+      .collect::<napi::Result<Vec<_>>>()
+  }
+
+  #[napi(getter)]
+  pub fn filename_template(&self) -> napi::Result<Either<&str, ()>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(match chunk.filename_template().and_then(|f| f.template()) {
+      Some(tpl) => Either::A(tpl),
+      None => Either::B(()),
+    })
+  }
+
+  #[napi(getter)]
+  pub fn css_filename_template(&self) -> napi::Result<Either<&str, ()>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(
+      match chunk.css_filename_template().and_then(|f| f.template()) {
+        Some(tpl) => Either::A(tpl),
+        None => Either::B(()),
+      },
+    )
+  }
+
+  #[napi(getter)]
+  pub fn files(&self) -> napi::Result<Vec<&String>> {
+    let (_, chunk) = self.as_ref()?;
+    let mut files = Vec::from_iter(chunk.files());
+    files.sort_unstable();
+    Ok(files)
+  }
+
+  #[napi(getter)]
+  pub fn runtime(&self) -> napi::Result<Vec<&str>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(chunk.runtime().iter().map(|r| r.as_ref()).collect())
+  }
+
+  #[napi(getter)]
+  pub fn hash(&self) -> napi::Result<Either<&str, ()>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      match chunk
+        .hash(&compilation.chunk_hashes_artifact)
+        .map(|d| d.encoded())
+      {
+        Some(hash) => Either::A(hash),
+        None => Either::B(()),
+      },
+    )
+  }
+
+  #[napi(getter)]
+  pub fn content_hash(&self) -> napi::Result<HashMap<String, &str>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      chunk
+        .content_hash(&compilation.chunk_hashes_artifact)
+        .map(|content_hash| {
+          content_hash
+            .iter()
+            .map(|(key, v)| (key.to_string(), v.encoded()))
+            .collect::<HashMap<String, &str>>()
+        })
+        .unwrap_or_default(),
+    )
+  }
+
+  #[napi(getter)]
+  pub fn rendered_hash(&self) -> napi::Result<Either<&str, ()>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      match chunk.rendered_hash(
+        &compilation.chunk_hashes_artifact,
+        compilation.options.output.hash_digest_length,
+      ) {
+        Some(hash) => Either::A(hash),
+        None => Either::B(()),
+      },
+    )
+  }
+
+  #[napi(getter)]
+  pub fn chunk_reason(&self) -> napi::Result<Either<&str, ()>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(match chunk.chunk_reason() {
+      Some(reason) => Either::A(reason),
+      None => Either::B(()),
+    })
+  }
+
+  #[napi(getter)]
+  pub fn auxiliary_files(&self) -> napi::Result<Vec<&String>> {
+    let (_, chunk) = self.as_ref()?;
+    Ok(chunk.auxiliary_files().iter().collect::<Vec<_>>())
+  }
 }
 
-#[napi(js_name = "__chunk_inner_is_only_initial")]
-pub fn is_only_initial(js_chunk_ukey: u32, compilation: &JsCompilation) -> bool {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk.is_only_initial(&compilation.chunk_group_by_ukey)
+#[napi]
+impl JsChunk {
+  #[napi]
+  pub fn is_only_initial(&self) -> napi::Result<bool> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(chunk.is_only_initial(&compilation.chunk_group_by_ukey))
+  }
+
+  #[napi]
+  pub fn can_be_initial(&self) -> napi::Result<bool> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(chunk.can_be_initial(&compilation.chunk_group_by_ukey))
+  }
+
+  #[napi]
+  pub fn has_runtime(&self) -> napi::Result<bool> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(chunk.has_runtime(&compilation.chunk_group_by_ukey))
+  }
+
+  #[napi(ts_return_type = "JsChunk[]")]
+  pub fn get_all_async_chunks(&self) -> napi::Result<Vec<JsChunkWrapper>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      chunk
+        .get_all_async_chunks(&compilation.chunk_group_by_ukey)
+        .into_iter()
+        .map(|chunk_ukey| JsChunkWrapper::new(chunk_ukey, compilation))
+        .collect::<Vec<_>>(),
+    )
+  }
+
+  #[napi(ts_return_type = "JsChunk[]")]
+  pub fn get_all_initial_chunks(&self) -> napi::Result<Vec<JsChunkWrapper>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      chunk
+        .get_all_initial_chunks(&compilation.chunk_group_by_ukey)
+        .into_iter()
+        .map(|chunk_ukey| JsChunkWrapper::new(chunk_ukey, compilation))
+        .collect::<Vec<_>>(),
+    )
+  }
+
+  #[napi(ts_return_type = "JsChunk[]")]
+  pub fn get_all_referenced_chunks(&self) -> napi::Result<Vec<JsChunkWrapper>> {
+    let (compilation, chunk) = self.as_ref()?;
+    Ok(
+      chunk
+        .get_all_referenced_chunks(&compilation.chunk_group_by_ukey)
+        .into_iter()
+        .map(|chunk_ukey| JsChunkWrapper::new(chunk_ukey, compilation))
+        .collect::<Vec<_>>(),
+    )
+  }
+
+  #[napi(ts_return_type = "JsChunkGroup[]")]
+  pub fn groups(&self) -> napi::Result<Vec<JsChunkGroupWrapper>> {
+    let (compilation, chunk) = self.as_ref()?;
+    let mut groups = chunk
+      .groups()
+      .iter()
+      .filter_map(|group| compilation.chunk_group_by_ukey.get(group))
+      .collect::<Vec<_>>();
+    groups.sort_unstable_by(|a, b| a.index.cmp(&b.index));
+    Ok(
+      groups
+        .iter()
+        .map(|group| JsChunkGroupWrapper::new(group.ukey, compilation))
+        .collect::<Vec<_>>(),
+    )
+  }
 }
 
-#[napi(js_name = "__chunk_inner_can_be_initial")]
-pub fn can_be_initial(js_chunk_ukey: u32, compilation: &JsCompilation) -> bool {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk.can_be_initial(&compilation.chunk_group_by_ukey)
+thread_local! {
+  static CHUNK_INSTANCE_REFS: RefCell<HashMap<CompilationId, HashMap<ChunkUkey, OneShotRef<JsChunk>>>> = Default::default();
 }
 
-#[napi(js_name = "__chunk_inner_has_runtime")]
-pub fn has_runtime(js_chunk_ukey: u32, compilation: &JsCompilation) -> bool {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk.has_runtime(&compilation.chunk_group_by_ukey)
+pub struct JsChunkWrapper {
+  chunk_ukey: ChunkUkey,
+  compilation_id: CompilationId,
+  compilation: NonNull<Compilation>,
 }
 
-#[napi(js_name = "__chunk_inner_get_all_async_chunks")]
-pub fn get_all_async_chunks(js_chunk_ukey: u32, compilation: &JsCompilation) -> Vec<JsChunk> {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk
-    .get_all_async_chunks(&compilation.chunk_group_by_ukey)
-    .into_iter()
-    .map(|c| JsChunk::from(compilation.chunk_by_ukey.expect_get(&c)))
-    .collect()
+unsafe impl Send for JsChunkWrapper {}
+
+impl JsChunkWrapper {
+  pub fn new(chunk_ukey: ChunkUkey, compilation: &Compilation) -> Self {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    #[allow(clippy::unwrap_used)]
+    Self {
+      chunk_ukey,
+      compilation_id: compilation.id(),
+      compilation: NonNull::new(compilation as *const Compilation as *mut Compilation).unwrap(),
+    }
+  }
+
+  pub fn cleanup_last_compilation(compilation_id: CompilationId) {
+    CHUNK_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.borrow_mut();
+      refs_by_compilation_id.remove(&compilation_id)
+    });
+  }
 }
 
-#[napi(js_name = "__chunk_inner_get_all_initial_chunks")]
-pub fn get_all_initial_chunks(js_chunk_ukey: u32, compilation: &JsCompilation) -> Vec<JsChunk> {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk
-    .get_all_initial_chunks(&compilation.chunk_group_by_ukey)
-    .into_iter()
-    .map(|c| JsChunk::from(compilation.chunk_by_ukey.expect_get(&c)))
-    .collect()
+impl ToNapiValue for JsChunkWrapper {
+  unsafe fn to_napi_value(
+    env: napi::sys::napi_env,
+    val: Self,
+  ) -> napi::Result<napi::sys::napi_value> {
+    CHUNK_INSTANCE_REFS.with(|refs| {
+      let mut refs_by_compilation_id = refs.borrow_mut();
+      let entry = refs_by_compilation_id.entry(val.compilation_id);
+      let refs = match entry {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          let refs = HashMap::default();
+          entry.insert(refs)
+        }
+      };
+
+      match refs.entry(val.chunk_ukey) {
+        std::collections::hash_map::Entry::Occupied(entry) => {
+          let r = entry.get();
+          ToNapiValue::to_napi_value(env, r)
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          let js_module = JsChunk {
+            chunk_ukey: val.chunk_ukey,
+            compilation: val.compilation,
+          };
+          let r = entry.insert(OneShotRef::new(env, js_module)?);
+          ToNapiValue::to_napi_value(env, r)
+        }
+      }
+    })
+  }
 }
 
-#[napi(js_name = "__chunk_inner_get_all_referenced_chunks")]
-pub fn get_all_referenced_chunks(js_chunk_ukey: u32, compilation: &JsCompilation) -> Vec<JsChunk> {
-  let compilation = &compilation.0;
-  let chunk = chunk(js_chunk_ukey, compilation);
-  chunk
-    .get_all_referenced_chunks(&compilation.chunk_group_by_ukey)
-    .into_iter()
-    .map(|c| JsChunk::from(compilation.chunk_by_ukey.expect_get(&c)))
-    .collect()
-}
-
-#[napi(object)]
+#[napi(object, object_from_js = false)]
 pub struct JsChunkAssetArgs {
-  pub chunk: JsChunk,
+  #[napi(ts_type = "JsChunk")]
+  pub chunk: JsChunkWrapper,
   pub filename: String,
 }

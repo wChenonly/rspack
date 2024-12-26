@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use dyn_clone::{clone_trait_object, DynClone};
+use rspack_cacheable::cacheable_dyn;
 use rspack_sources::{BoxSource, ReplaceSource};
 use rspack_util::ext::AsAny;
 
@@ -23,16 +24,16 @@ impl TemplateContext<'_, '_, '_> {
   pub fn chunk_init_fragments(&mut self) -> &mut ChunkInitFragments {
     let data_fragments = self.data.get::<ChunkInitFragments>();
     if data_fragments.is_some() {
-      return self
+      self
         .data
         .get_mut::<ChunkInitFragments>()
-        .expect("should have chunk_init_fragments");
+        .expect("should have chunk_init_fragments")
     } else {
       self.data.insert(ChunkInitFragments::default());
-      return self
+      self
         .data
         .get_mut::<ChunkInitFragments>()
-        .expect("should have chunk_init_fragments");
+        .expect("should have chunk_init_fragments")
     }
   }
 }
@@ -42,6 +43,7 @@ pub type TemplateReplaceSource = ReplaceSource<BoxSource>;
 clone_trait_object!(DependencyTemplate);
 
 // Align with https://github.com/webpack/webpack/blob/671ac29d462e75a10c3fdfc785a4c153e41e749e/lib/DependencyTemplate.js
+#[cacheable_dyn]
 pub trait DependencyTemplate: Debug + DynClone + Sync + Send + AsDependency + AsAny {
   fn apply(
     &self,

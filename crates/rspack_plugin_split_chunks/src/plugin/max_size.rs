@@ -3,7 +3,8 @@ use std::{borrow::Cow, hash::Hash};
 
 use rayon::prelude::*;
 use regex::Regex;
-use rspack_collections::UkeyMap;
+use rspack_collections::{DatabaseItem, UkeyMap};
+use rspack_core::incremental::Mutation;
 use rspack_core::{
   ChunkUkey, Compilation, CompilerOptions, Module, ModuleIdentifier, DEFAULT_DELIMITER,
 };
@@ -26,10 +27,11 @@ struct Group {
   nodes: Vec<GroupItem>,
   pub size: SplitChunkSizes,
   pub key: Option<String>,
+  pub similarities: Vec<usize>,
 }
 
 impl Group {
-  fn new(items: Vec<GroupItem>, key: Option<String>) -> Self {
+  fn new(items: Vec<GroupItem>, key: Option<String>, similarities: Vec<usize>) -> Self {
     let mut summed_size = SplitChunkSizes::empty();
     items.iter().for_each(|item| summed_size.add_by(&item.size));
 
@@ -37,6 +39,7 @@ impl Group {
       nodes: items,
       size: summed_size,
       key,
+      similarities,
     }
   }
 }
@@ -46,7 +49,7 @@ fn get_size(module: &dyn Module, compilation: &Compilation) -> SplitChunkSizes {
     module
       .source_types()
       .iter()
-      .map(|ty| (*ty, module.size(Some(ty), compilation)))
+      .map(|ty| (*ty, module.size(Some(ty), Some(compilation))))
       .collect(),
   )
 }
@@ -85,16 +88,16 @@ fn deterministic_grouping_for_modules(
   let items = compilation
     .chunk_graph
     .get_chunk_modules(chunk, &module_graph);
-
   let context = compilation.options.context.as_ref();
 
   let nodes = items.into_iter().map(|module| {
     let module: &dyn Module = &**module;
-    let name: String = if module.name_for_condition().is_some() {
-      make_paths_relative(context, module.identifier().as_str())
+    let name: String = if let Some(name_for_condition) = module.name_for_condition() {
+      make_paths_relative(context, &name_for_condition)
     } else {
+      let path = make_paths_relative(context, module.identifier().as_str());
       REPLACE_MODULE_IDENTIFIER_REG
-        .replace_all(&module.identifier(), "")
+        .replace_all(&path, "")
         .to_string()
     };
     let key = format!(
@@ -110,7 +113,7 @@ fn deterministic_grouping_for_modules(
     }
   });
 
-  let initial_nodes = nodes
+  let mut initial_nodes = nodes
     .into_iter()
     .filter_map(|node| {
       // The Module itself is already bigger than `allow_max_size`, we will create a chunk
@@ -123,7 +126,7 @@ fn deterministic_grouping_for_modules(
           allow_max_size
         );
         let key = node.key.clone();
-        results.push(Group::new(vec![node], Some(key)));
+        results.push(Group::new(vec![node], Some(key), vec![]));
         None
       } else {
         Some(node)
@@ -131,8 +134,11 @@ fn deterministic_grouping_for_modules(
     })
     .collect::<Vec<_>>();
 
+  initial_nodes.sort_by(|a, b| a.key.cmp(&b.key));
+
   if !initial_nodes.is_empty() {
-    let initial_group = Group::new(initial_nodes, None);
+    let similarities = get_similarities(&initial_nodes);
+    let initial_group = Group::new(initial_nodes, None, similarities);
 
     let mut queue = vec![initial_group];
 
@@ -155,16 +161,17 @@ fn deterministic_grouping_for_modules(
         left += 1;
       }
 
-      let mut right = group.nodes.len() - 2;
+      let mut right: i32 = group.nodes.len() as i32 - 2;
       let mut right_size = SplitChunkSizes::empty();
-      right_size.add_by(&group.nodes[right + 1].size);
-      while right != 0 && right_size.smaller_than(min_size) {
-        right_size.add_by(&group.nodes[right].size);
+      right_size.add_by(&group.nodes[right as usize + 1].size);
 
-        right = right.saturating_sub(1);
+      while right >= 0 && right_size.smaller_than(min_size) {
+        right_size.add_by(&group.nodes[right as usize].size);
+
+        right -= 1;
       }
 
-      if left - 1 > right {
+      if left - 1 > right as usize {
         // There are overlaps
 
         // TODO(hyf0): There are some algorithms we could do better in this
@@ -177,13 +184,54 @@ fn deterministic_grouping_for_modules(
         group.key = group.nodes.first().map(|n| n.key.clone());
         results.push(group);
         continue;
-      }
+      } else {
+        let mut pos = left;
+        let mut best = -1;
+        let mut best_similarity = usize::MAX;
+        right_size = group.nodes.iter().rev().take(group.nodes.len() - pos).fold(
+          SplitChunkSizes::empty(),
+          |mut acc, node| {
+            acc.add_by(&node.size);
+            acc
+          },
+        );
 
-      if left <= right {
+        while pos <= right as usize + 1 {
+          let similarity = group.similarities[pos - 1];
+          if similarity < best_similarity
+            && left_size.bigger_than(min_size)
+            && right_size.bigger_than(min_size)
+          {
+            best_similarity = similarity;
+            best = pos as i32;
+          }
+          let size = &group.nodes[pos].size;
+          left_size.add_by(size);
+          right_size.subtract_by(size);
+          pos += 1;
+        }
+
+        if best == -1 {
+          results.push(group);
+          continue;
+        }
+
+        left = best as usize;
+        right = best - 1;
+
+        let mut right_similarities = vec![];
+        for i in right as usize + 2..group.nodes.len() {
+          right_similarities.push((group.similarities)[i - 1]);
+        }
+
+        let mut left_similarities = vec![];
+        for i in 1..left {
+          left_similarities.push((group.similarities)[i - 1]);
+        }
         let right_nodes = group.nodes.split_off(left);
         let left_nodes = group.nodes;
-        queue.push(Group::new(right_nodes, None));
-        queue.push(Group::new(left_nodes, None));
+        queue.push(Group::new(right_nodes, None, right_similarities));
+        queue.push(Group::new(left_nodes, None, left_similarities));
       }
     }
   }
@@ -199,6 +247,31 @@ struct ChunkWithSizeInfo<'a> {
   pub allow_max_size: Cow<'a, SplitChunkSizes>,
   pub min_size: &'a SplitChunkSizes,
   pub automatic_name_delimiter: &'a String,
+}
+
+fn get_similarities(nodes: &[GroupItem]) -> Vec<usize> {
+  let mut similarities = Vec::with_capacity(nodes.len());
+  let mut nodes = nodes.iter();
+  let Some(mut last) = nodes.next() else {
+    return similarities;
+  };
+
+  for node in nodes {
+    similarities.push(similarity(&last.key, &node.key));
+    last = node;
+  }
+
+  similarities
+}
+
+fn similarity(a: &str, b: &str) -> usize {
+  let mut a = a.chars();
+  let mut b = b.chars();
+  let mut dist = 0;
+  while let (Some(ca), Some(cb)) = (a.next(), b.next()) {
+    dist += std::cmp::max(0, 10 - (ca as i32 - cb as i32).abs());
+  }
+  dist as usize
 }
 
 impl SplitChunksPlugin {
@@ -218,13 +291,13 @@ impl SplitChunksPlugin {
     .values()
     .par_bridge()
     .map(|chunk| {
-      let max_size_setting = max_size_setting_map.get(&chunk.ukey);
-      tracing::trace!("max_size_setting : {max_size_setting:#?} for {:?}", chunk.ukey);
+      let max_size_setting = max_size_setting_map.get(&chunk.ukey());
+      tracing::trace!("max_size_setting : {max_size_setting:#?} for {:?}", chunk.ukey());
 
       if max_size_setting.is_none()
-        && !(fallback_cache_group.chunks_filter)(chunk, chunk_group_db)?
+        && !(fallback_cache_group.chunks_filter)(chunk, compilation)?
       {
-        tracing::debug!("Chunk({:?}) skips `maxSize` checking. Reason: max_size_setting.is_none() and chunks_filter is false", chunk.chunk_reason);
+        tracing::debug!("Chunk({:?}) skips `maxSize` checking. Reason: max_size_setting.is_none() and chunks_filter is false", chunk.chunk_reason());
         return Ok(None);
       }
 
@@ -254,7 +327,7 @@ impl SplitChunksPlugin {
       if allow_max_size.is_empty() {
         tracing::debug!(
           "Chunk({:?}) skips the `maxSize` checking. Reason: allow_max_size is empty",
-          chunk.chunk_reason
+          chunk.chunk_reason()
         );
         return Ok(None);
       }
@@ -279,7 +352,7 @@ impl SplitChunksPlugin {
       Ok(Some(ChunkWithSizeInfo {
         allow_max_size,
         min_size,
-        chunk: chunk.ukey,
+        chunk: chunk.ukey(),
         automatic_name_delimiter,
       }))
     }).collect::<Result<Vec<_>>>()?
@@ -328,12 +401,11 @@ impl SplitChunksPlugin {
         };
         let chunk = compilation.chunk_by_ukey.expect_get_mut(&info.chunk);
         let delimiter = max_size_setting_map
-          .get(&chunk.ukey)
+          .get(&chunk.ukey())
           .map(|s| s.automatic_name_delimiter.as_str())
           .unwrap_or(DEFAULT_DELIMITER);
         let mut name = chunk
-          .name
-          .as_ref()
+          .name()
           .map(|name| format!("{name}{delimiter}{group_key}"));
 
         if let Some(n) = name.clone() {
@@ -345,38 +417,67 @@ impl SplitChunksPlugin {
         }
 
         if index != last_index {
-          let old_chunk = chunk.ukey;
+          let old_chunk = chunk.ukey();
           let new_chunk_ukey = if let Some(name) = name {
-            Compilation::add_named_chunk(
+            let (new_chunk_ukey, created) = Compilation::add_named_chunk(
               name,
               &mut compilation.chunk_by_ukey,
               &mut compilation.named_chunks,
-            )
+            );
+            if created && let Some(mutations) = compilation.incremental.mutations_write() {
+              mutations.add(Mutation::ChunkAdd {
+                chunk: new_chunk_ukey,
+              });
+            }
+            new_chunk_ukey
           } else {
-            Compilation::add_chunk(&mut compilation.chunk_by_ukey)
+            let new_chunk_ukey = Compilation::add_chunk(&mut compilation.chunk_by_ukey);
+            if let Some(mutations) = compilation.incremental.mutations_write() {
+              mutations.add(Mutation::ChunkAdd {
+                chunk: new_chunk_ukey,
+              });
+            }
+            new_chunk_ukey
           };
 
-          let [new_part, chunk] = compilation
+          let [Some(new_part), Some(chunk)] = compilation
             .chunk_by_ukey
-            ._todo_should_remove_this_method_inner_mut()
             .get_many_mut([&new_chunk_ukey, &old_chunk])
-            .expect("split_from_original_chunks failed");
+          else {
+            panic!("split_from_original_chunks failed")
+          };
+          let new_part_ukey = new_part.ukey();
           chunk.split(new_part, &mut compilation.chunk_group_by_ukey);
+          if let Some(mutations) = compilation.incremental.mutations_write() {
+            mutations.add(Mutation::ChunkSplit {
+              from: old_chunk,
+              to: new_chunk_ukey,
+            });
+          }
 
           group.nodes.iter().for_each(|module| {
-            compilation.chunk_graph.add_chunk(new_part.ukey);
+            compilation.chunk_graph.add_chunk(new_part_ukey);
+
+            if let Some(module) = compilation.module_by_identifier(&module.module) {
+              if module
+                .chunk_condition(&new_part_ukey, compilation)
+                .is_some_and(|condition| !condition)
+              {
+                return;
+              }
+            }
 
             // Add module to new chunk
             compilation
               .chunk_graph
-              .connect_chunk_and_module(new_part.ukey, module.module);
+              .connect_chunk_and_module(new_part_ukey, module.module);
             // Remove module from used chunks
             compilation
               .chunk_graph
               .disconnect_chunk_and_module(&old_chunk, module.module)
           })
         } else {
-          chunk.name = name;
+          chunk.set_name(name);
         }
       })
     });

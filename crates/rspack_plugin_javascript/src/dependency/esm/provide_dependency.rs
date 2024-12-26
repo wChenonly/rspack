@@ -1,8 +1,12 @@
 use itertools::Itertools;
+use rspack_cacheable::{
+  cacheable, cacheable_dyn,
+  with::{AsPreset, AsVec, Skip},
+};
 use rspack_core::{
-  create_exports_object_referenced, module_raw, Compilation, DependencyType,
-  ExtendedReferencedExport, ModuleGraph, NormalInitFragment, RealDependencyLocation, RuntimeSpec,
-  UsedName,
+  create_exports_object_referenced, module_raw, Compilation, DependencyLocation, DependencyRange,
+  DependencyType, ExtendedReferencedExport, ModuleGraph, NormalInitFragment, RuntimeSpec,
+  SharedSourceMap, UsedName,
 };
 use rspack_core::{AsContextDependency, Dependency, InitFragmentKey, InitFragmentStage};
 use rspack_core::{DependencyCategory, DependencyId, DependencyTemplate};
@@ -10,25 +14,32 @@ use rspack_core::{ModuleDependency, TemplateContext, TemplateReplaceSource};
 use rspack_util::ext::DynHash;
 use swc_core::atoms::Atom;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct ProvideDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   request: Atom,
   identifier: String,
+  #[cacheable(with=AsVec<AsPreset>)]
   ids: Vec<Atom>,
-  range: RealDependencyLocation,
+  range: DependencyRange,
+  #[cacheable(with=Skip)]
+  source_map: Option<SharedSourceMap>,
 }
 
 impl ProvideDependency {
   pub fn new(
-    range: RealDependencyLocation,
+    range: DependencyRange,
     request: Atom,
     identifier: String,
     ids: Vec<Atom>,
+    source_map: Option<SharedSourceMap>,
   ) -> Self {
     Self {
       range,
       request,
+      source_map,
       identifier,
       ids,
       id: DependencyId::new(),
@@ -36,13 +47,14 @@ impl ProvideDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for ProvideDependency {
   fn id(&self) -> &DependencyId {
     &self.id
   }
 
-  fn loc(&self) -> Option<String> {
-    Some(self.range.to_string())
+  fn loc(&self) -> Option<DependencyLocation> {
+    self.range.to_loc(self.source_map.as_ref())
   }
 
   fn category(&self) -> &DependencyCategory {
@@ -70,6 +82,7 @@ impl Dependency for ProvideDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for ProvideDependency {
   fn request(&self) -> &str {
     &self.request
@@ -84,6 +97,7 @@ impl ModuleDependency for ProvideDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for ProvideDependency {
   fn apply(
     &self,
@@ -98,7 +112,7 @@ impl DependencyTemplate for ProvideDependency {
       ..
     } = code_generatable_context;
     let module_graph = compilation.get_module_graph();
-    let Some(con) = module_graph.connection_by_dependency(&self.id) else {
+    let Some(con) = module_graph.connection_by_dependency_id(&self.id) else {
       // not find connection, maybe because it's not resolved in make phase, and `bail` is false
       return;
     };

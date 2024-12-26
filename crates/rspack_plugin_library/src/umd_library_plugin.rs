@@ -1,7 +1,7 @@
 use std::{borrow::Cow, hash::Hash};
 
 use rspack_core::{
-  rspack_sources::{ConcatSource, RawSource, SourceExt},
+  rspack_sources::{ConcatSource, RawStringSource, SourceExt},
   ApplyContext, Chunk, ChunkUkey, Compilation, CompilationAdditionalChunkRuntimeRequirements,
   CompilationParams, CompilerCompilation, CompilerOptions, ExternalModule, ExternalRequest,
   FilenameTemplate, LibraryAuxiliaryComment, LibraryCustomUmdObject, LibraryName,
@@ -111,7 +111,7 @@ fn render(
   let module_graph = compilation.get_module_graph();
   let modules = compilation
     .chunk_graph
-    .get_chunk_module_identifiers(chunk_ukey)
+    .get_chunk_modules_identifier(chunk_ukey)
     .iter()
     .filter_map(|identifier| {
       module_graph
@@ -213,10 +213,10 @@ fn render(
   };
 
   let mut source = ConcatSource::default();
-  source.add(RawSource::from(
+  source.add(RawStringSource::from(
     "(function webpackUniversalModuleDefinition(root, factory) {\n",
   ));
-  source.add(RawSource::from(format!(
+  source.add(RawStringSource::from(format!(
     r#"{}
       if(typeof exports === 'object' && typeof module === 'object') {{
           module.exports = factory({});
@@ -224,7 +224,7 @@ fn render(
     get_auxiliary_comment("commonjs2", auxiliary_comment),
     externals_require_array("commonjs2", &externals)?
   )));
-  source.add(RawSource::from(format!(
+  source.add(RawStringSource::from(format!(
     "else if(typeof define === 'function' && define.amd) {{
           {}
           {define}
@@ -240,7 +240,7 @@ fn render(
     },
   )));
   source.add(render_source.source.clone());
-  source.add(RawSource::from("\n})"));
+  source.add(RawStringSource::from_static("\n})"));
   render_source.source = source.boxed();
   Ok(())
 }
@@ -305,12 +305,22 @@ fn replace_keys(v: String, chunk: &Chunk, compilation: &Compilation) -> String {
   compilation
     .get_path(
       &FilenameTemplate::from(v),
-      PathData::default().chunk(chunk).content_hash_optional(
-        chunk
-          .content_hash
-          .get(&SourceType::JavaScript)
-          .map(|i| i.rendered(compilation.options.output.hash_digest_length)),
-      ),
+      PathData::default()
+        .chunk_id_optional(
+          chunk
+            .id(&compilation.chunk_ids_artifact)
+            .map(|id| id.as_str()),
+        )
+        .chunk_hash_optional(chunk.rendered_hash(
+          &compilation.chunk_hashes_artifact,
+          compilation.options.output.hash_digest_length,
+        ))
+        .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+        .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+          &compilation.chunk_hashes_artifact,
+          &SourceType::JavaScript,
+          compilation.options.output.hash_digest_length,
+        )),
     )
     .always_ok()
 }

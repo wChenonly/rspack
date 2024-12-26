@@ -10,11 +10,10 @@ use anyhow::Context;
 use cow_utils::CowUtils;
 use itertools::Itertools;
 use rayon::prelude::*;
-use regex::Regex;
 use rspack_core::{
   parse_to_url,
-  rspack_sources::{RawSource, SourceExt},
-  Compilation, CompilationAsset, Filename, NoFilenameFn, PathData,
+  rspack_sources::{RawBufferSource, RawStringSource, SourceExt},
+  AssetInfo, Compilation, CompilationAsset, Filename, NoFilenameFn, PathData,
 };
 use rspack_error::{miette, AnyhowError};
 use rspack_paths::Utf8PathBuf;
@@ -23,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use sugar_path::SugarPath;
 
 use crate::{
-  config::{HtmlInject, HtmlRspackPluginOptions, HtmlScriptLoading},
+  config::{HtmlChunkSortMode, HtmlInject, HtmlRspackPluginOptions, HtmlScriptLoading},
   sri::{add_sri, create_digest_from_asset},
   tag::HtmlPluginTag,
 };
@@ -50,19 +49,33 @@ impl HtmlPluginAssets {
     let mut asset_map = HashMap::new();
     assets.public_path = public_path.to_string();
 
-    let included_assets = compilation
-      .entrypoints
-      .keys()
-      .filter(|&entry_name| {
-        let mut included = true;
-        if let Some(included_chunks) = &config.chunks {
-          included = included_chunks.iter().any(|c| c.eq(entry_name));
-        }
-        if let Some(exclude_chunks) = &config.exclude_chunks {
-          included = included && !exclude_chunks.iter().any(|c| c.eq(entry_name));
-        }
-        included
-      })
+    let sorted_entry_names: Vec<&String> =
+      if matches!(config.chunks_sort_mode, HtmlChunkSortMode::Manual)
+        && let Some(chunks) = &config.chunks
+      {
+        chunks
+          .iter()
+          .filter(|&name| compilation.entrypoints.contains_key(name))
+          .collect()
+      } else {
+        compilation
+          .entrypoints
+          .keys()
+          .filter(|&entry_name| {
+            let mut included = true;
+            if let Some(included_chunks) = &config.chunks {
+              included = included_chunks.iter().any(|c| c.eq(entry_name));
+            }
+            if let Some(exclude_chunks) = &config.exclude_chunks {
+              included = included && !exclude_chunks.iter().any(|c| c.eq(entry_name));
+            }
+            included
+          })
+          .collect()
+      };
+
+    let included_assets = sorted_entry_names
+      .iter()
       .map(|entry_name| compilation.entrypoint_by_name(entry_name))
       .flat_map(|entry| entry.get_files(&compilation.chunk_by_ukey))
       .filter_map(|asset_name| {
@@ -112,21 +125,17 @@ impl HtmlPluginAssets {
         favicon_relative_path.to_string_lossy().to_string().as_str(),
       ));
 
-      let fake_html_file_name = compilation
-        .get_path(
-          html_file_name,
-          PathData::default().filename(output_path.as_str()),
-        )
-        .always_ok();
-
       if favicon_path.to_str().unwrap_or_default().is_empty() {
-        favicon_path = compilation
-          .options
-          .output
-          .path
-          .as_std_path()
-          .join(favicon_relative_path)
-          .relative(PathBuf::from(fake_html_file_name).join(".."));
+        let fake_html_file_name = compilation
+          .get_path(
+            html_file_name,
+            PathData::default().filename(output_path.as_str()),
+          )
+          .always_ok();
+        let output_path = compilation.options.output.path.as_std_path();
+        favicon_path = output_path
+          .relative(output_path.join(fake_html_file_name).join(".."))
+          .join(favicon_relative_path);
       } else {
         favicon_path.push(favicon_relative_path);
       }
@@ -282,8 +291,7 @@ pub fn append_hash(url: &str, hash: &str) -> String {
 
 pub fn generate_posix_path(path: &str) -> Cow<'_, str> {
   if env::consts::OS == "windows" {
-    let reg = Regex::new(r"[/\\]").expect("Invalid RegExp");
-    reg.replace_all(path, "/")
+    path.cow_replace(&['/', '\\'] as &[char], "/")
   } else {
     path.into()
   }
@@ -335,7 +343,7 @@ pub fn create_favicon_asset(
     .map(|content| {
       (
         favicon_file_path,
-        CompilationAsset::from(RawSource::from(content).boxed()),
+        CompilationAsset::from(RawBufferSource::from(content).boxed()),
       )
     })
     .map_err(|err| miette::Error::from(AnyhowError::from(err)))
@@ -349,18 +357,20 @@ pub fn create_html_asset(
 ) -> (String, CompilationAsset) {
   let hash = hash_for_source(html);
 
-  let (output_path, asset_info) = compilation
+  let mut asset_info = AssetInfo::default();
+  let output_path = compilation
     .get_path_with_info(
       output_file_name,
       PathData::default()
         .filename(template_file_name)
         .content_hash(&hash),
+      &mut asset_info,
     )
     .always_ok();
 
   (
     output_path,
-    CompilationAsset::new(Some(RawSource::from(html).boxed()), asset_info),
+    CompilationAsset::new(Some(RawStringSource::from(html).boxed()), asset_info),
   )
 }
 

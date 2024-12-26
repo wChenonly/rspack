@@ -9,7 +9,7 @@ jobs:
     name: Get Runner Labels
     uses: ./.github/workflows/get-runner-labels.yml
     with:
-      force-use-github-runner: true
+      force-use-github-runner: false
 
   check-changed:
     runs-on: ubuntu-latest
@@ -21,10 +21,9 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          predicate-quantifier: "every"
           filters: |
             changed:
-              - "crates"
+              - "crates/**"
               - "packages/rspack/**"
               - "packages/rspack-cli/**"
 
@@ -38,7 +37,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ${{ needs.get-runner-labels.outputs.LINUX_RUNNER_LABELS }}
           - target: aarch64-unknown-linux-gnu
-            runner: ${{ needs.get-runner-labels.outputs.LINUX_RUNNER_LABELS }}
+            runner: "'ubuntu-latest'"
           - target: x86_64-unknown-linux-musl
             runner: ${{ needs.get-runner-labels.outputs.LINUX_RUNNER_LABELS }}
           - target: aarch64-unknown-linux-musl

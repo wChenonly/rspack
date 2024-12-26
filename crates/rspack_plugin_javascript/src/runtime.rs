@@ -1,5 +1,6 @@
 use rayon::prelude::*;
-use rspack_core::rspack_sources::{BoxSource, ConcatSource, RawSource, SourceExt};
+use rspack_core::chunk_graph_chunk::ChunkId;
+use rspack_core::rspack_sources::{BoxSource, ConcatSource, RawStringSource, SourceExt};
 use rspack_core::{
   to_normal_comment, BoxModule, ChunkGraph, ChunkInitFragments, ChunkUkey, Compilation,
   RuntimeGlobals, SourceType,
@@ -53,9 +54,9 @@ pub fn render_chunk_modules(
     .collect::<Vec<ConcatSource>>();
 
   let mut sources = ConcatSource::default();
-  sources.add(RawSource::from("{\n"));
+  sources.add(RawStringSource::from_static("{\n"));
   sources.add(ConcatSource::new(module_sources));
-  sources.add(RawSource::from("\n}"));
+  sources.add(RawStringSource::from_static("\n}"));
 
   Ok(Some((sources.boxed(), chunk_init_fragments)))
 }
@@ -70,7 +71,7 @@ pub fn render_module(
   let chunk = compilation.chunk_by_ukey.expect_get(chunk_ukey);
   let code_gen_result = compilation
     .code_generation_results
-    .get(&module.identifier(), Some(&chunk.runtime));
+    .get(&module.identifier(), Some(chunk.runtime()));
   let Some(origin_source) = code_gen_result.get(&SourceType::JavaScript) else {
     return Ok(None);
   };
@@ -92,8 +93,11 @@ pub fn render_module(
   let mut sources = ConcatSource::default();
 
   if factory {
-    let runtime_requirements =
-      ChunkGraph::get_module_runtime_requirements(compilation, module.identifier(), &chunk.runtime);
+    let runtime_requirements = ChunkGraph::get_module_runtime_requirements(
+      compilation,
+      module.identifier(),
+      chunk.runtime(),
+    );
 
     let need_module = runtime_requirements.is_some_and(|r| r.contains(RuntimeGlobals::MODULE));
     let need_exports = runtime_requirements.is_some_and(|r| r.contains(RuntimeGlobals::EXPORTS));
@@ -122,21 +126,20 @@ pub fn render_module(
     if need_require {
       args.push(RuntimeGlobals::REQUIRE.to_string());
     }
-    let module_id = compilation
-      .chunk_graph
-      .get_module_id(module.identifier())
-      .expect("should have module_id in render_module");
-    sources.add(RawSource::from(
+    let module_id =
+      ChunkGraph::get_module_id(&compilation.module_ids_artifact, module.identifier())
+        .expect("should have module_id in render_module");
+    sources.add(RawStringSource::from(
       serde_json::to_string(&module_id).map_err(|e| error!(e.to_string()))?,
     ));
-    sources.add(RawSource::from(": "));
+    sources.add(RawStringSource::from_static(": "));
     if is_diff_mode() {
-      sources.add(RawSource::from(format!(
+      sources.add(RawStringSource::from(format!(
         "\n{}\n",
         to_normal_comment(&format!("start::{}", module.identifier()))
       )));
     }
-    sources.add(RawSource::from(format!(
+    sources.add(RawStringSource::from(format!(
       "(function ({}) {{\n",
       args.join(", ")
     )));
@@ -144,17 +147,17 @@ pub fn render_module(
       && build_info.strict
       && !all_strict
     {
-      sources.add(RawSource::from("\"use strict\";\n"));
+      sources.add(RawStringSource::from_static("\"use strict\";\n"));
     }
     sources.add(render_source.source);
-    sources.add(RawSource::from("\n\n})"));
+    sources.add(RawStringSource::from_static("\n\n})"));
     if is_diff_mode() {
-      sources.add(RawSource::from(format!(
+      sources.add(RawStringSource::from(format!(
         "\n{}\n",
         to_normal_comment(&format!("end::{}", module.identifier()))
       )));
     }
-    sources.add(RawSource::from(",\n"));
+    sources.add(RawStringSource::from_static(",\n"));
   } else {
     sources.add(render_source.source);
   }
@@ -176,12 +179,12 @@ pub fn render_chunk_runtime_modules(
   }
 
   let mut sources = ConcatSource::default();
-  sources.add(RawSource::from(format!(
+  sources.add(RawStringSource::from(format!(
     "function({}) {{\n",
     RuntimeGlobals::REQUIRE
   )));
   sources.add(runtime_modules_sources);
-  sources.add(RawSource::from("\n}\n"));
+  sources.add(RawStringSource::from_static("\n}\n"));
   Ok(sources.boxed())
 }
 
@@ -196,23 +199,26 @@ pub fn render_runtime_modules(
     .map(|(identifier, runtime_module)| {
       (
         compilation
-          .runtime_module_code_generation_results
+          .runtime_modules_code_generation_source
           .get(identifier)
           .expect("should have runtime module result"),
         runtime_module,
       )
     })
-    .try_for_each(|((_, source), module)| -> Result<()> {
+    .try_for_each(|(source, module)| -> Result<()> {
       if source.size() == 0 {
         return Ok(());
       }
       if is_diff_mode() {
-        sources.add(RawSource::from(format!(
+        sources.add(RawStringSource::from(format!(
           "/* start::{} */\n",
           module.identifier()
         )));
       } else {
-        sources.add(RawSource::from(format!("// {}\n", module.identifier())));
+        sources.add(RawStringSource::from(format!(
+          "// {}\n",
+          module.identifier()
+        )));
       }
       let supports_arrow_function = compilation
         .options
@@ -220,26 +226,26 @@ pub fn render_runtime_modules(
         .environment
         .supports_arrow_function();
       if module.should_isolate() {
-        sources.add(RawSource::from(if supports_arrow_function {
+        sources.add(RawStringSource::from(if supports_arrow_function {
           "(() => {\n"
         } else {
           "!function() {\n"
         }));
       }
-      if module.cacheable() {
+      if !(module.full_hash() || module.dependent_hash()) {
         sources.add(source.clone());
       } else {
         sources.add(module.generate_with_custom(compilation)?);
       }
       if module.should_isolate() {
-        sources.add(RawSource::from(if supports_arrow_function {
+        sources.add(RawStringSource::from(if supports_arrow_function {
           "\n})();\n"
         } else {
           "\n}();\n"
         }));
       }
       if is_diff_mode() {
-        sources.add(RawSource::from(format!(
+        sources.add(RawStringSource::from(format!(
           "/* end::{} */\n",
           module.identifier()
         )));
@@ -249,7 +255,7 @@ pub fn render_runtime_modules(
   Ok(sources.boxed())
 }
 
-pub fn stringify_chunks_to_array(chunks: &HashSet<String>) -> String {
+pub fn stringify_chunks_to_array(chunks: &HashSet<ChunkId>) -> String {
   let mut v = Vec::from_iter(chunks.iter());
   v.sort_unstable();
 

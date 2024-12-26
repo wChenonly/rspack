@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fs, sync::Arc};
 
 use cow_utils::CowUtils;
-use derivative::Derivative;
+use derive_more::Debug;
 use rspack_error::{error, miette::IntoDiagnostic, Result};
 use rspack_hook::define_hook;
 use rspack_paths::{AssertUtf8, Utf8Path, Utf8PathBuf};
@@ -10,11 +10,11 @@ use swc_core::common::util::take::Take;
 use tracing::instrument;
 
 use crate::{
-  resolve, BoxDependency, ContextElementDependency, ContextModule, ContextModuleOptions,
-  DependencyCategory, DependencyId, DependencyType, ErrorSpan, ModuleExt, ModuleFactory,
-  ModuleFactoryCreateData, ModuleFactoryResult, ModuleIdentifier, RawModule, ResolveArgs,
-  ResolveContextModuleDependencies, ResolveInnerOptions, ResolveOptionsWithDependencyType,
-  ResolveResult, Resolver, ResolverFactory, SharedPluginDriver,
+  resolve, BoxDependency, CompilationId, ContextElementDependency, ContextModule,
+  ContextModuleOptions, DependencyCategory, DependencyId, DependencyType, ErrorSpan, ModuleExt,
+  ModuleFactory, ModuleFactoryCreateData, ModuleFactoryResult, ModuleIdentifier, RawModule,
+  ResolveArgs, ResolveContextModuleDependencies, ResolveInnerOptions,
+  ResolveOptionsWithDependencyType, ResolveResult, Resolver, ResolverFactory, SharedPluginDriver,
 };
 
 #[derive(Debug)]
@@ -47,9 +47,9 @@ pub enum AfterResolveResult {
   Data(Box<AfterResolveData>),
 }
 
-#[derive(Derivative)]
-#[derivative(Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct AfterResolveData {
+  pub compilation_id: CompilationId,
   pub resource: Utf8PathBuf,
   pub context: String,
   pub dependencies: Vec<BoxDependency>,
@@ -71,7 +71,7 @@ pub struct AfterResolveData {
   // type_prefix: String,
   // category: String,
   // referenced_exports
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   pub resolve_dependencies: ResolveContextModuleDependencies,
 }
 
@@ -84,12 +84,11 @@ pub struct ContextModuleFactoryHooks {
   pub after_resolve: ContextModuleFactoryAfterResolveHook,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct ContextModuleFactory {
   loader_resolver_factory: Arc<ResolverFactory>,
   plugin_driver: SharedPluginDriver,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   resolve_dependencies: ResolveContextModuleDependencies,
 }
 
@@ -124,7 +123,10 @@ impl ContextModuleFactory {
       tracing::trace!("resolving context module path {}", options.resource);
 
       let resolver = &resolver_factory.get(ResolveOptionsWithDependencyType {
-        resolve_options: options.resolve_options.clone(),
+        resolve_options: options
+          .resolve_options
+          .clone()
+          .map(|r| Box::new(Arc::unwrap_or_clone(r))),
         resolve_to_context: false,
         dependency_category: options.context_options.category,
       });
@@ -339,6 +341,7 @@ impl ContextModuleFactory {
   ) -> Result<Option<ModuleFactoryResult>> {
     let context_options = &context_module_options.context_options;
     let after_resolve_data = AfterResolveData {
+      compilation_id: data.compilation_id,
       resource: context_module_options.resource.clone(),
       context: context_options.context.clone(),
       dependencies: data.dependencies.clone(),
@@ -403,7 +406,7 @@ fn visit_dirs(
       if options.context_options.recursive {
         visit_dirs(ctx, &path, dependencies, options, resolve_options)?;
       }
-    } else if path.file_name().map_or(false, |name| name.starts_with('.')) {
+    } else if path.file_name().is_some_and(|name| name.starts_with('.')) {
       // ignore hidden files
       continue;
     } else {

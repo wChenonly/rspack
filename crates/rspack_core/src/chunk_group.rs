@@ -2,22 +2,22 @@ use std::cmp::Ordering;
 use std::fmt::{self, Display};
 
 use itertools::Itertools;
+use rspack_cacheable::cacheable;
 use rspack_collections::IdentifierMap;
 use rspack_collections::{DatabaseItem, UkeySet};
 use rspack_error::{error, Result};
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::{
-  compare_chunk_group, get_chunk_from_ukey, get_chunk_group_from_ukey, Chunk, ChunkByUkey,
-  ChunkGroupByUkey, ChunkGroupUkey, DependencyLocation, DynamicImportFetchPriority, Filename,
-  ModuleLayer,
+  compare_chunk_group, Chunk, ChunkByUkey, ChunkGroupByUkey, ChunkGroupUkey, DependencyLocation,
+  DynamicImportFetchPriority, Filename, ModuleLayer,
 };
 use crate::{ChunkLoading, ChunkUkey, Compilation};
 use crate::{LibraryOptions, ModuleIdentifier, PublicPath};
 
 #[derive(Debug, Clone)]
 pub struct OriginRecord {
-  pub module_id: Option<ModuleIdentifier>,
+  pub module: Option<ModuleIdentifier>,
   pub loc: Option<DependencyLocation>,
   pub request: Option<String>,
 }
@@ -91,7 +91,7 @@ impl ChunkGroup {
       .flat_map(|chunk_ukey| {
         chunk_by_ukey
           .expect_get(chunk_ukey)
-          .files
+          .files()
           .iter()
           .map(|file| file.to_string())
       })
@@ -99,19 +99,19 @@ impl ChunkGroup {
   }
 
   pub(crate) fn connect_chunk(&mut self, chunk: &mut Chunk) {
-    self.chunks.push(chunk.ukey);
+    self.chunks.push(chunk.ukey());
     chunk.add_group(self.ukey);
   }
 
   pub fn unshift_chunk(&mut self, chunk: &mut Chunk) -> bool {
-    if let Ok(index) = self.chunks.binary_search(&chunk.ukey) {
+    if let Ok(index) = self.chunks.binary_search(&chunk.ukey()) {
       if index > 0 {
         self.chunks.remove(index);
-        self.chunks.insert(0, chunk.ukey);
+        self.chunks.insert(0, chunk.ukey());
       }
       false
     } else {
-      self.chunks.insert(0, chunk.ukey);
+      self.chunks.insert(0, chunk.ukey());
       true
     }
   }
@@ -262,7 +262,10 @@ impl ChunkGroup {
       .chunks
       .iter()
       .filter_map(|chunk| {
-        get_chunk_from_ukey(chunk, &compilation.chunk_by_ukey).and_then(|item| item.id.as_ref())
+        compilation
+          .chunk_by_ukey
+          .get(chunk)
+          .and_then(|item| item.id(&compilation.chunk_ids_artifact))
       })
       .join("+")
   }
@@ -291,12 +294,7 @@ impl ChunkGroup {
   }
 
   pub fn add_parent(&mut self, parent_group: ChunkGroupUkey) -> bool {
-    if self.parents.contains(&parent_group) {
-      false
-    } else {
-      self.parents.insert(parent_group);
-      true
-    }
+    self.parents.insert(parent_group)
   }
 
   pub fn add_origin(
@@ -306,13 +304,13 @@ impl ChunkGroup {
     request: Option<String>,
   ) {
     self.origins.push(OriginRecord {
-      module_id,
+      module: module_id,
       loc,
       request,
     });
   }
 
-  pub fn origins(&self) -> &Vec<OriginRecord> {
+  pub fn origins(&self) -> &[OriginRecord] {
     &self.origins
   }
 
@@ -327,9 +325,7 @@ impl ChunkGroup {
     for order_key in orders {
       let mut list = vec![];
       for child_ukey in &self.children {
-        let Some(child_group) =
-          get_chunk_group_from_ukey(child_ukey, &compilation.chunk_group_by_ukey)
-        else {
+        let Some(child_group) = compilation.chunk_group_by_ukey.get(child_ukey) else {
           continue;
         };
         if let Some(order) = child_group
@@ -405,6 +401,7 @@ impl ChunkGroupKind {
   }
 }
 
+#[cacheable]
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EntryRuntime {
   String(String),
@@ -434,7 +431,7 @@ impl EntryRuntime {
 }
 
 // pub type EntryRuntime = String;
-
+#[cacheable]
 #[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct EntryOptions {
   pub name: Option<String>,
@@ -505,6 +502,7 @@ impl Display for ChunkGroupOrderKey {
   }
 }
 
+#[cacheable]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ChunkGroupOptions {
   pub name: Option<String>,
@@ -533,6 +531,7 @@ impl ChunkGroupOptions {
   }
 }
 
+#[cacheable]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum GroupOptions {
   Entrypoint(Box<EntryOptions>),

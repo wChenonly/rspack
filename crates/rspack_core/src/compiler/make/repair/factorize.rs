@@ -1,6 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use rspack_error::Diagnostic;
+use rspack_paths::ArcPath;
 use rspack_sources::BoxSource;
 use rustc_hash::FxHashSet as HashSet;
 
@@ -8,13 +9,14 @@ use super::{add::AddTask, MakeTaskContext};
 use crate::{
   module_graph::ModuleGraphModule,
   utils::task_loop::{Task, TaskResult, TaskType},
-  BoxDependency, CompilerOptions, Context, ExportInfoData, ExportsInfoData, ModuleFactory,
-  ModuleFactoryCreateData, ModuleFactoryResult, ModuleIdentifier, ModuleLayer, ModuleProfile,
-  Resolve,
+  BoxDependency, CompilationId, CompilerOptions, Context, ExportInfoData, ExportsInfoData,
+  ModuleFactory, ModuleFactoryCreateData, ModuleFactoryResult, ModuleIdentifier, ModuleLayer,
+  ModuleProfile, Resolve, ResolverFactory,
 };
 
 #[derive(Debug)]
 pub struct FactorizeTask {
+  pub compilation_id: CompilationId,
   pub module_factory: Arc<dyn ModuleFactory>,
   pub original_module_identifier: Option<ModuleIdentifier>,
   pub original_module_source: Option<BoxSource>,
@@ -22,9 +24,10 @@ pub struct FactorizeTask {
   pub issuer: Option<Box<str>>,
   pub issuer_layer: Option<ModuleLayer>,
   pub dependencies: Vec<BoxDependency>,
-  pub resolve_options: Option<Box<Resolve>>,
+  pub resolve_options: Option<Arc<Resolve>>,
   pub options: Arc<CompilerOptions>,
   pub current_profile: Option<Box<ModuleProfile>>,
+  pub resolver_factory: Arc<ResolverFactory>,
 }
 
 #[async_trait::async_trait]
@@ -32,7 +35,7 @@ impl Task<MakeTaskContext> for FactorizeTask {
   fn get_task_type(&self) -> TaskType {
     TaskType::Async
   }
-  async fn async_run(self: Box<Self>) -> TaskResult<MakeTaskContext> {
+  async fn background_run(self: Box<Self>) -> TaskResult<MakeTaskContext> {
     if let Some(current_profile) = &self.current_profile {
       current_profile.mark_factory_start();
     }
@@ -60,7 +63,7 @@ impl Task<MakeTaskContext> for FactorizeTask {
     let side_effects_only_info = ExportInfoData::new(Some("*side effects only*".into()), None);
     let exports_info = ExportsInfoData::new(other_exports_info.id(), side_effects_only_info.id());
     let factorize_result_task = FactorizeResultTask {
-      //      dependency: dep_id,
+      // dependency: dep_id,
       original_module_identifier: self.original_module_identifier,
       factory_result: None,
       dependencies: vec![],
@@ -79,6 +82,7 @@ impl Task<MakeTaskContext> for FactorizeTask {
     // Error and result are not mutually exclusive in webpack module factorization.
     // Rspack puts results that need to be shared in both error and ok in [ModuleFactoryCreateData].
     let mut create_data = ModuleFactoryCreateData {
+      compilation_id: self.compilation_id,
       resolve_options: self.resolve_options,
       options: self.options.clone(),
       context,
@@ -86,6 +90,7 @@ impl Task<MakeTaskContext> for FactorizeTask {
       issuer: self.issuer,
       issuer_identifier: self.original_module_identifier,
       issuer_layer,
+      resolver_factory: self.resolver_factory,
 
       file_dependencies: Default::default(),
       missing_dependencies: Default::default(),
@@ -125,7 +130,10 @@ impl Task<MakeTaskContext> for FactorizeTask {
           return Err(e);
         }
         let mut diagnostics = Vec::with_capacity(create_data.diagnostics.len() + 1);
-        diagnostics.push(Into::<Diagnostic>::into(e).with_loc(create_data.dependencies[0].loc()));
+        diagnostics.push(
+          Into::<Diagnostic>::into(e)
+            .with_loc(create_data.dependencies[0].loc().map(|loc| loc.to_string())),
+        );
         diagnostics.append(&mut create_data.diagnostics);
         // Continue bundling if `options.bail` set to `false`.
         Ok(vec![Box::new(
@@ -159,9 +167,9 @@ pub struct FactorizeResultTask {
   pub current_profile: Option<Box<ModuleProfile>>,
   pub exports_info_related: ExportsInfoRelated,
 
-  pub file_dependencies: HashSet<PathBuf>,
-  pub context_dependencies: HashSet<PathBuf>,
-  pub missing_dependencies: HashSet<PathBuf>,
+  pub file_dependencies: HashSet<ArcPath>,
+  pub context_dependencies: HashSet<ArcPath>,
+  pub missing_dependencies: HashSet<ArcPath>,
   pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -181,27 +189,28 @@ impl FactorizeResultTask {
     self
   }
 
-  fn with_file_dependencies(mut self, files: impl IntoIterator<Item = PathBuf>) -> Self {
+  fn with_file_dependencies(mut self, files: impl IntoIterator<Item = ArcPath>) -> Self {
     self.file_dependencies = files.into_iter().collect();
     self
   }
 
-  fn with_context_dependencies(mut self, contexts: impl IntoIterator<Item = PathBuf>) -> Self {
+  fn with_context_dependencies(mut self, contexts: impl IntoIterator<Item = ArcPath>) -> Self {
     self.context_dependencies = contexts.into_iter().collect();
     self
   }
 
-  fn with_missing_dependencies(mut self, missing: impl IntoIterator<Item = PathBuf>) -> Self {
+  fn with_missing_dependencies(mut self, missing: impl IntoIterator<Item = ArcPath>) -> Self {
     self.missing_dependencies = missing.into_iter().collect();
     self
   }
 }
 
+#[async_trait::async_trait]
 impl Task<MakeTaskContext> for FactorizeResultTask {
   fn get_task_type(&self) -> TaskType {
     TaskType::Sync
   }
-  fn sync_run(self: Box<Self>, context: &mut MakeTaskContext) -> TaskResult<MakeTaskContext> {
+  async fn main_run(self: Box<Self>, context: &mut MakeTaskContext) -> TaskResult<MakeTaskContext> {
     let FactorizeResultTask {
       original_module_identifier,
       factory_result,

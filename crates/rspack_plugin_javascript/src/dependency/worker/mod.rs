@@ -1,28 +1,29 @@
 mod create_script_url_dependency;
 pub use create_script_url_dependency::CreateScriptUrlDependency;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::{
-  get_chunk_from_ukey, AsContextDependency, Compilation, Dependency, DependencyCategory,
-  DependencyId, DependencyTemplate, DependencyType, ExtendedReferencedExport, ModuleDependency,
-  ModuleGraph, RealDependencyLocation, RuntimeGlobals, RuntimeSpec, TemplateContext,
-  TemplateReplaceSource,
+  AsContextDependency, Compilation, Dependency, DependencyCategory, DependencyId, DependencyRange,
+  DependencyTemplate, DependencyType, ExtendedReferencedExport, ModuleDependency, ModuleGraph,
+  RuntimeGlobals, RuntimeSpec, TemplateContext, TemplateReplaceSource,
 };
 use rspack_util::ext::DynHash;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct WorkerDependency {
   id: DependencyId,
   request: String,
   public_path: String,
-  range: RealDependencyLocation,
-  range_path: RealDependencyLocation,
+  range: DependencyRange,
+  range_path: DependencyRange,
 }
 
 impl WorkerDependency {
   pub fn new(
     request: String,
     public_path: String,
-    range: RealDependencyLocation,
-    range_path: RealDependencyLocation,
+    range: DependencyRange,
+    range_path: DependencyRange,
   ) -> Self {
     Self {
       id: DependencyId::new(),
@@ -34,6 +35,7 @@ impl WorkerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for WorkerDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -47,7 +49,7 @@ impl Dependency for WorkerDependency {
     &DependencyType::NewWorker
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -64,6 +66,7 @@ impl Dependency for WorkerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for WorkerDependency {
   fn request(&self) -> &str {
     &self.request
@@ -78,6 +81,7 @@ impl ModuleDependency for WorkerDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for WorkerDependency {
   fn apply(
     &self,
@@ -98,8 +102,8 @@ impl DependencyTemplate for WorkerDependency {
           .get_block_chunk_group(block, &compilation.chunk_group_by_ukey)
       })
       .map(|entrypoint| entrypoint.get_entry_point_chunk())
-      .and_then(|ukey| get_chunk_from_ukey(&ukey, &compilation.chunk_by_ukey))
-      .and_then(|chunk| chunk.id.as_deref())
+      .and_then(|ukey| compilation.chunk_by_ukey.get(&ukey))
+      .and_then(|chunk| chunk.id(&compilation.chunk_ids_artifact))
       .and_then(|chunk_id| serde_json::to_string(chunk_id).ok())
       .expect("failed to get json stringified chunk id");
     let worker_import_base_url = if !self.public_path.is_empty() {

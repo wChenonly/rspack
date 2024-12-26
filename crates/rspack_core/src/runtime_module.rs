@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rspack_cacheable::cacheable;
 use rspack_collections::Identifier;
 use rspack_sources::{BoxSource, Source};
 
@@ -12,9 +13,11 @@ pub trait RuntimeModule: Module + CustomSourceRuntimeModule {
   fn stage(&self) -> RuntimeModuleStage {
     RuntimeModuleStage::Normal
   }
-  // webpack fullHash || dependentHash
-  fn cacheable(&self) -> bool {
-    true
+  fn full_hash(&self) -> bool {
+    false
+  }
+  fn dependent_hash(&self) -> bool {
+    false
   }
   // if wrap iife
   fn should_isolate(&self) -> bool {
@@ -41,6 +44,7 @@ pub trait CustomSourceRuntimeModule {
 
 pub type BoxRuntimeModule = Box<dyn RuntimeModule>;
 
+#[cacheable]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RuntimeModuleStage {
   Normal,  // Runtime modules without any dependencies to other runtime modules

@@ -2,8 +2,8 @@
 mod impl_plugin_for_css_plugin;
 use std::cmp::{self, Reverse};
 
-use rspack_collections::IdentifierSet;
-use rspack_core::{Chunk, ChunkGraph, Compilation, Module, ModuleGraph, SourceType};
+use rspack_collections::{DatabaseItem, IdentifierSet};
+use rspack_core::{Chunk, Compilation, Module};
 use rspack_core::{ChunkUkey, ModuleIdentifier};
 use rspack_hook::plugin;
 
@@ -19,31 +19,18 @@ pub struct CssOrderConflicts {
 }
 
 impl CssPlugin {
-  pub(crate) fn get_ordered_chunk_css_modules<'chunk_graph>(
+  pub(crate) fn get_ordered_chunk_css_modules<'a>(
     chunk: &Chunk,
-    chunk_graph: &'chunk_graph ChunkGraph,
-    module_graph: &'chunk_graph ModuleGraph,
     compilation: &Compilation,
-  ) -> (
-    Vec<&'chunk_graph dyn Module>,
-    Option<Vec<CssOrderConflicts>>,
-  ) {
+    mut css_import_modules: Vec<&'a dyn Module>,
+    mut css_modules: Vec<&'a dyn Module>,
+  ) -> (Vec<&'a dyn Module>, Option<Vec<CssOrderConflicts>>) {
+    css_import_modules.sort_unstable_by_key(|module| module.identifier());
     let (mut external_css_modules, conflicts_external) =
-      Self::get_ordered_chunk_css_modules_by_type(
-        chunk,
-        chunk_graph,
-        module_graph,
-        compilation,
-        SourceType::CssImport,
-      );
+      Self::get_modules_in_order(chunk, css_import_modules, compilation);
 
-    let (mut css_modules, conflicts) = Self::get_ordered_chunk_css_modules_by_type(
-      chunk,
-      chunk_graph,
-      module_graph,
-      compilation,
-      SourceType::Css,
-    );
+    css_modules.sort_unstable_by_key(|module| module.identifier());
+    let (mut css_modules, conflicts) = Self::get_modules_in_order(chunk, css_modules, compilation);
 
     external_css_modules.append(&mut css_modules);
 
@@ -58,27 +45,6 @@ impl CssPlugin {
     };
 
     (external_css_modules, conflicts)
-  }
-
-  fn get_ordered_chunk_css_modules_by_type<'chunk_graph>(
-    chunk: &Chunk,
-    chunk_graph: &'chunk_graph ChunkGraph,
-    module_graph: &'chunk_graph ModuleGraph,
-    compilation: &Compilation,
-    source_type: SourceType,
-  ) -> (
-    Vec<&'chunk_graph dyn Module>,
-    Option<Vec<CssOrderConflicts>>,
-  ) {
-    // Align with https://github.com/webpack/webpack/blob/8241da7f1e75c5581ba535d127fa66aeb9eb2ac8/lib/css/CssModulesPlugin.js#L368
-    let mut css_modules = chunk_graph
-      .get_chunk_modules_iterable_by_source_type(&chunk.ukey, source_type, module_graph)
-      .collect::<Vec<_>>();
-    css_modules.sort_unstable_by_key(|module| module.identifier());
-
-    let (css_modules, conflicts) = Self::get_modules_in_order(chunk, css_modules, compilation);
-
-    (css_modules, conflicts)
   }
 
   pub fn get_modules_in_order<'module>(
@@ -96,7 +62,7 @@ impl CssPlugin {
     // Get ordered list of modules per chunk group
 
     let mut modules_by_chunk_group = chunk
-      .groups
+      .groups()
       .iter()
       .map(|group| compilation.chunk_group_by_ukey.expect_get(group))
       .map(|chunk_group| {
@@ -183,7 +149,7 @@ impl CssPlugin {
         // TODO(hyf0): we should emit a warning here
         tracing::warn!("Conflicting order between");
         let conflict = CssOrderConflicts {
-          chunk: chunk.ukey,
+          chunk: chunk.ukey(),
           failed_module: has_failed.identifier(),
           selected_module: selected_module.identifier(),
         };
@@ -214,9 +180,9 @@ impl CssPlugin {
       // Remove the selected module from all lists
       for SortedModules { set, list } in &mut modules_by_chunk_group {
         let last_module = list.last();
-        if last_module.map_or(false, |last_module| {
-          last_module.identifier() == selected_module.identifier()
-        }) {
+        if last_module
+          .is_some_and(|last_module| last_module.identifier() == selected_module.identifier())
+        {
           list.pop();
           set.remove(&selected_module.identifier());
         } else if has_failed.is_some() && set.contains(&selected_module.identifier()) {

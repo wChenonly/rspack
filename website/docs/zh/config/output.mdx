@@ -150,7 +150,7 @@ module.exports = {
 
 ## output.clean
 
-- **类型：** `boolean`
+- **类型：** `boolean | { keep?: string }`
 - **默认值：** `false`
 
 在生成产物前，删除输出目录下的所有文件。
@@ -160,6 +160,35 @@ module.exports = {
   //...
   output: {
     clean: true, // Clean the output directory before emit.
+  },
+
+  // or
+  output: {
+    clean: {
+      keep: 'ignored/dir', // keep these assets under 'dist/ignored/dir'.
+    },
+  },
+};
+```
+
+## output.compareBeforeEmit
+
+<ApiMeta addedVersion={'1.1.0'} />
+
+- **类型：** `boolean`
+- **默认值：** `true`
+
+告知 Rspack 在写入产物文件时检查文件是否已经存在并且拥有相同内容。
+
+:::warning
+当在文件系统中已经存在有相同内容的文件时，Rspack 将不会写入产物文件。
+:::
+
+```js title="rspack.config.js"
+module.exports = {
+  //...
+  output: {
+    compareBeforeEmit: false,
   },
 };
 ```
@@ -351,6 +380,8 @@ module.exports = {
       const: true,
       // The environment supports destructuring ('{ a, b } = obj').
       destructuring: true,
+      // The environment supports 'document' variable.
+      document: true,
       // The environment supports an async import() function to import EcmaScript modules.
       dynamicImport: false,
       // The environment supports an async import() when creating a worker, only for web targets at the moment.
@@ -523,7 +554,7 @@ module.exports = {
 
 :::
 
-Hash 的长度（`[hash]`、`[contenthash]` 或 `[chunkhash]`）可以使用 `[hash:16]` 来指定（默认为 20）。另外，可以使用 [output.hashDigestLength](#outputhashdigestlength) 来全局配置长度。
+Hash 的长度（`[hash]`、`[contenthash]` 或 `[chunkhash]`）可以使用 `[hash:12]` 来指定（默认为 16）。另外，可以使用 [output.hashDigestLength](#outputhashdigestlength) 来全局配置长度。
 
 当你想在实际文件名中使用占位符时，可以过滤掉占位符替换。例如，要输出一个文件 `[name].js`，你必须通过在括号之间添加反斜杠来转义 `[name]` 占位符。这样 `[\name\]` 会生成 `[name]` 而不是被替换为资源的名称。
 
@@ -593,20 +624,16 @@ module.exports = {
 ## output.hashDigestLength
 
 - **类型：** `number`
-- **默认值：** `20`
+- **默认值：** `16`
 
 要使用的哈希摘要的长度。
-
-:::tip
-`hashDigestLength` 默认值为 `20`，当启用 [`experiments.futureDefaults`](/config/experiments#experimentsfuturedefaults) 时将使用 `16` 作为默认值。
-:::
 
 ## output.hashFunction
 
 - **类型：** `'md4' | 'xxhash64'`
-- **默认值：** `'md4'`
+- **默认值：** `'xxhash64'`
 
-要使用的哈希算法。
+指定要使用的哈希算法。
 
 ```javascript title=rspack.config.js
 module.exports = {
@@ -618,7 +645,7 @@ module.exports = {
 ```
 
 :::tip
-`hashFunction` 支持更快的 `xxhash64` 算法，当启用 [`experiments.futureDefaults`](/config/experiments#experimentsfuturedefaults) 时将使用它作为默认值。
+Rspack 从 1.1 版本开始默认使用更快的 `xxhash64` 算法。
 :::
 
 ## output.hashSalt
@@ -1634,7 +1661,7 @@ module.exports = {
 - **类型：** `boolean`
 - **默认值：** `false`
 
-按照 ES Module 规范处理 module 加载时的错误，会有性能损失。
+按照 ES modules 规范处理 module 加载时的错误，会有性能损失。
 
 ```js title="rspack.config.js"
 module.exports = {
@@ -1644,6 +1671,12 @@ module.exports = {
   },
 };
 ```
+
+## output.strictModuleExceptionHandling
+
+- **Types:** boolean
+
+告诉 Rspack 当 require 模块出现错误时，移除模块的缓存。
 
 ## output.trustedTypes
 
@@ -1664,6 +1697,28 @@ module.exports = {
   output: {
     trustedTypes: {
       policyName: 'my-application#webpack',
+    },
+  },
+};
+```
+
+### output.trustedTypes.onPolicyCreationFailure
+
+<ApiMeta addedVersion={'1.1.6'} />
+
+- **类型：** `"stop" | "continue"`
+- **默认值：** `"stop"`
+
+确定当 [`require-trusted-types-for 'script'`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/require-trusted-types-for) 未能正确执行时，是继续加载还是异常终止。未能正确执行可能是由于策略名称不在 CSP 的 `trusted-types` 列表中或策略名称重复而使得 `trustedTypes.createPolicy(...)` 执行失败。
+
+```js title="rspack.config.js"
+module.exports = {
+  //...
+  output: {
+    //...
+    trustedTypes: {
+      policyName: 'my-application#webpack',
+      onPolicyCreationFailure: 'continue',
     },
   },
 };

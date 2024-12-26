@@ -52,7 +52,7 @@ export default class NodeEnvironmentPlugin {
 		);
 		compiler.inputFileSystem = inputFileSystem;
 		compiler.outputFileSystem = fs;
-		compiler.intermediateFileSystem = fs;
+		compiler.intermediateFileSystem = null;
 		compiler.watchFileSystem = new NodeWatchFileSystem(inputFileSystem);
 		compiler.hooks.beforeRun.tap("NodeEnvironmentPlugin", compiler => {
 			if (compiler.inputFileSystem === inputFileSystem) {

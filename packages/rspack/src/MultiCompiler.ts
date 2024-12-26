@@ -9,14 +9,18 @@
  */
 
 import * as liteTapable from "@rspack/lite-tapable";
-import asyncLib from "neo-async";
 import type { Compiler, RspackOptions, Stats } from ".";
 import MultiStats from "./MultiStats";
 import MultiWatching from "./MultiWatching";
 import type { WatchOptions } from "./config";
 import ConcurrentCompilationError from "./error/ConcurrentCompilationError";
 import ArrayQueue from "./util/ArrayQueue";
-import type { InputFileSystem, WatchFileSystem } from "./util/fs";
+import asyncLib from "./util/asyncLib";
+import type {
+	InputFileSystem,
+	IntermediateFileSystem,
+	WatchFileSystem
+} from "./util/fs";
 
 interface Node<T> {
 	compiler: Compiler;
@@ -180,7 +184,7 @@ export class MultiCompiler {
 		}
 	}
 
-	set intermediateFileSystem(value) {
+	set intermediateFileSystem(value: IntermediateFileSystem) {
 		for (const compiler of this.compilers) {
 			compiler.intermediateFileSystem = value;
 		}

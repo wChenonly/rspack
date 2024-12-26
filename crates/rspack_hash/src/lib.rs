@@ -5,6 +5,7 @@ use std::{
 
 use data_encoding::HEXLOWER_PERMISSIVE;
 use md4::Digest;
+use rspack_cacheable::{cacheable, with::AsPreset};
 use smol_str::SmolStr;
 use xxhash_rust::xxh64::Xxh64;
 
@@ -121,9 +122,19 @@ impl Hasher for RspackHash {
   }
 }
 
+#[cacheable]
 #[derive(Debug, Clone, Eq)]
 pub struct RspackHashDigest {
+  #[cacheable(with=AsPreset)]
   encoded: SmolStr,
+}
+
+impl From<&str> for RspackHashDigest {
+  fn from(value: &str) -> Self {
+    Self {
+      encoded: value.into(),
+    }
+  }
 }
 
 impl RspackHashDigest {

@@ -21,7 +21,7 @@ use swc_core::common::{
   BytePos, Span, DUMMY_SP,
 };
 use swc_core::ecma::ast::{Module, Script};
-use swc_core::ecma::visit::{as_folder, noop_visit_mut_type, Fold, VisitMut, VisitMutWith};
+use swc_core::ecma::visit::{noop_visit_mut_type, visit_mut_pass, VisitMut, VisitMutWith};
 use swc_node_comments::SwcComments;
 
 /// Preserves comments that would otherwise be dropped.
@@ -35,9 +35,8 @@ use swc_node_comments::SwcComments;
 /// This transformer shifts orphaned comments to the next closest known span
 /// while making a best-effort to preserve the "general orientation" of
 /// comments.
-
-pub fn dropped_comments_preserver(comments: Option<SwcComments>) -> impl Fold + VisitMut {
-  as_folder(DroppedCommentsPreserver {
+pub fn dropped_comments_preserver(comments: Option<SwcComments>) -> impl VisitMut {
+  visit_mut_pass(DroppedCommentsPreserver {
     comments,
     is_first_span: true,
     known_spans: Vec::new(),

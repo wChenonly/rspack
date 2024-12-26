@@ -2,7 +2,7 @@ use cow_utils::CowUtils;
 use rspack_collections::Identifier;
 use rspack_core::{
   has_hash_placeholder, impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   Compilation, Filename, PublicPath, RuntimeModule,
 };
 
@@ -26,7 +26,7 @@ impl RuntimeModule for PublicPathRuntimeModule {
 
   fn generate(&self, compilation: &Compilation) -> rspack_error::Result<BoxSource> {
     Ok(
-      RawSource::from(
+      RawStringSource::from(
         include_str!("runtime/public_path.js")
           .cow_replace(
             "__PUBLIC_PATH_PLACEHOLDER__",
@@ -39,11 +39,11 @@ impl RuntimeModule for PublicPathRuntimeModule {
   }
 
   // be cacheable only when the template does not contain a hash placeholder
-  fn cacheable(&self) -> bool {
+  fn full_hash(&self) -> bool {
     if let Some(template) = self.public_path.template() {
-      !has_hash_placeholder(template)
+      has_hash_placeholder(template)
     } else {
-      false
+      true
     }
   }
 }

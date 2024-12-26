@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use rspack_collections::IdentifierMap;
 use rustc_hash::FxHashSet as HashSet;
 use swc_core::atoms::Atom;
@@ -5,12 +6,34 @@ use swc_core::atoms::Atom;
 use super::super::MakeArtifact;
 use crate::{AsyncDependenciesBlockIdentifier, GroupOptions, ModuleGraph, ModuleIdentifier};
 
-#[derive(Debug, Default, Eq, PartialEq, Clone)]
+#[derive(Debug, Default, Clone)]
 struct ModuleDeps {
   // child module identifier of current module
-  child_modules: IdentifierMap<HashSet<Atom>>,
+  child_modules: IndexMap<ModuleIdentifier, HashSet<Atom>>,
   // blocks in current module
   module_blocks: Vec<(AsyncDependenciesBlockIdentifier, Option<GroupOptions>)>,
+}
+
+impl std::cmp::PartialEq for ModuleDeps {
+  fn eq(&self, other: &Self) -> bool {
+    // check imports order
+    if !self.child_modules.iter().eq(other.child_modules.iter()) {
+      return false;
+    }
+    /* TODO:
+     * we should check order in imported ids as well,
+     * different ids may comes from different modules
+     * after reexports optimized, but check the order
+     * of imported ids can break some usual sceneries
+     * like turns `import {A, B} from 'foo'` into
+     * `import {B, A} from 'foo'`, chunk graph cannot
+     * change, this is usual in development, we will
+     * drop this module deps support after newIncremental
+     * is stabilized
+     */
+
+    self.module_blocks == other.module_blocks
+  }
 }
 
 impl ModuleDeps {
@@ -21,14 +44,14 @@ impl ModuleDeps {
       .expect("should have module");
 
     let deps = module.get_dependencies();
-    let mut child_deps: IdentifierMap<HashSet<Atom>> = Default::default();
+    let mut child_deps: IndexMap<ModuleIdentifier, HashSet<Atom>> = Default::default();
 
     for dep_id in deps {
       let dep = module_graph
         .dependency_by_id(dep_id)
         .expect("should have dependency");
 
-      let Some(conn) = module_graph.connection_by_dependency(dep_id) else {
+      let Some(conn) = module_graph.connection_by_dependency_id(dep_id) else {
         continue;
       };
       let identifier = conn.module_identifier();
@@ -38,8 +61,9 @@ impl ModuleDeps {
         dep.dependency_type(),
         crate::DependencyType::EsmImportSpecifier
       ) {
-        let dep_ids = dep.get_ids(module_graph);
-        ids.extend(dep_ids.into_iter());
+        // TODO: remove Dependency::get_ids once incremental build chunk graph is stable.
+        let dep_ids = dep._get_ids(module_graph);
+        ids.extend(dep_ids.iter().cloned());
       }
     }
 
@@ -119,12 +143,12 @@ impl HasModuleGraphChange {
 mod t {
   use std::borrow::Cow;
 
-  use itertools::Itertools;
+  use rspack_cacheable::{cacheable, cacheable_dyn, with::Skip};
   use rspack_collections::Identifiable;
   use rspack_error::{impl_empty_diagnosable_trait, Diagnostic, Result};
   use rspack_macros::impl_source_map_config;
   use rspack_sources::Source;
-  use rspack_util::source_map::SourceMapKind;
+  use rspack_util::{atom::Atom, source_map::SourceMapKind};
 
   use crate::{
     compiler::make::cutout::has_module_graph_change::ModuleDeps, AffectType, AsContextDependency,
@@ -134,14 +158,16 @@ mod t {
     ModuleType, RuntimeSpec, SourceType,
   };
 
+  #[cacheable]
   #[derive(Debug, Clone)]
   struct TestDep {
-    ids: Vec<&'static str>,
+    #[cacheable(with=Skip)]
+    ids: Vec<Atom>,
     id: DependencyId,
   }
 
   impl TestDep {
-    fn new(ids: Vec<&'static str>) -> Self {
+    fn new(ids: Vec<Atom>) -> Self {
       Self {
         ids,
         id: DependencyId::new(),
@@ -151,6 +177,7 @@ mod t {
 
   impl AsContextDependency for TestDep {}
 
+  #[cacheable_dyn]
   impl Dependency for TestDep {
     fn dependency_type(&self) -> &crate::DependencyType {
       &crate::DependencyType::EsmImportSpecifier
@@ -160,12 +187,8 @@ mod t {
       &self.id
     }
 
-    fn get_ids(&self, _mg: &ModuleGraph) -> Vec<swc_core::atoms::Atom> {
-      self
-        .ids
-        .iter()
-        .map(|id| (*id).to_string().into())
-        .collect_vec()
+    fn _get_ids<'a>(&'a self, _mg: &'a ModuleGraph) -> &'a [Atom] {
+      &self.ids
     }
 
     fn could_affect_referencing_module(&self) -> AffectType {
@@ -173,6 +196,7 @@ mod t {
     }
   }
 
+  #[cacheable_dyn]
   impl DependencyTemplate for TestDep {
     fn apply(
       &self,
@@ -196,14 +220,16 @@ mod t {
     }
   }
 
+  #[cacheable_dyn]
   impl ModuleDependency for TestDep {
     fn request(&self) -> &str {
       ""
     }
   }
 
-  #[derive(Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
   #[impl_source_map_config]
+  #[cacheable]
+  #[derive(Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
   struct TestModule {
     pub(crate) id: ModuleIdentifier,
     deps: Vec<DependencyId>,
@@ -232,6 +258,10 @@ mod t {
       self.deps.push(dependency);
     }
 
+    fn remove_dependency_id(&mut self, dependency: DependencyId) {
+      self.deps.retain(|dep| dep != &dependency);
+    }
+
     fn get_dependencies(&self) -> &[DependencyId] {
       &self.deps
     }
@@ -245,6 +275,7 @@ mod t {
 
   impl_empty_diagnosable_trait!(TestModule);
 
+  #[cacheable_dyn]
   impl Module for TestModule {
     fn module_type(&self) -> &ModuleType {
       todo!()
@@ -266,7 +297,7 @@ mod t {
       todo!()
     }
 
-    fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+    fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
       todo!()
     }
 
@@ -319,7 +350,7 @@ mod t {
     let mut partial = ModuleGraphPartial::default();
     let mut mg = ModuleGraph::new(vec![], Some(&mut partial));
 
-    let dep1 = Box::new(TestDep::new(vec!["foo"]));
+    let dep1 = Box::new(TestDep::new(vec!["foo".into()]));
     let dep1_id = *dep1.id();
     let module_orig = Box::new(TestModule::new("app", vec![dep1_id]));
     let module_orig_id = module_orig.identifier();
@@ -339,7 +370,7 @@ mod t {
 
     assert_eq!(module_deps_1, module_deps_2);
 
-    let dep2 = Box::new(TestDep::new(vec!["bar"]));
+    let dep2 = Box::new(TestDep::new(vec!["bar".into()]));
     let dep2_id = *dep2.id();
     let module_orig: &mut TestModule = mg
       .module_by_identifier_mut(&module_orig_id)

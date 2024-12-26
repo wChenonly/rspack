@@ -59,9 +59,11 @@ idents
 Idents
 iife
 Iife
+incrementality
 indicatif
 inituit
 innovatively
+inottn
 intlify
 IWANABETHATGUY
 jantimon
@@ -71,7 +73,9 @@ jkzing
 jscexperimentalplugins
 JSCPU
 jscpuprofile
+jserfeng
 kaffi
+kuaishou
 Kyrylo
 lightningcss
 lingyucoder
@@ -110,7 +114,9 @@ NestJS
 ngtools
 noimport
 nosources
+nuxt
 nwjs
+nyqykk
 Omereshone
 optimizationemitonerrors
 optionsrspackexperiments

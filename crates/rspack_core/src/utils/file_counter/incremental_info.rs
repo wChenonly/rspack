@@ -1,34 +1,44 @@
-use std::path::PathBuf;
-
+use rspack_paths::ArcPath;
 use rustc_hash::FxHashSet as HashSet;
 
 /// Used to collect file add or remove.
 #[derive(Debug, Default)]
 pub struct IncrementalInfo {
-  added_files: HashSet<PathBuf>,
-  removed_files: HashSet<PathBuf>,
+  added_files: HashSet<ArcPath>,
+  removed_files: HashSet<ArcPath>,
+  updated_files: HashSet<ArcPath>,
 }
 
 impl IncrementalInfo {
   /// Get added files
-  pub fn added_files(&self) -> &HashSet<PathBuf> {
+  pub fn added_files(&self) -> &HashSet<ArcPath> {
     &self.added_files
   }
 
   /// Get removed files
-  pub fn removed_files(&self) -> &HashSet<PathBuf> {
+  pub fn removed_files(&self) -> &HashSet<ArcPath> {
     &self.removed_files
   }
 
+  /// Get removed files
+  pub fn updated_files(&self) -> &HashSet<ArcPath> {
+    &self.updated_files
+  }
+
+  /// Update a file
+  pub fn update(&mut self, path: &ArcPath) {
+    self.updated_files.insert(path.clone());
+  }
+
   /// Add a file
-  pub fn add(&mut self, path: &PathBuf) {
+  pub fn add(&mut self, path: &ArcPath) {
     if !self.removed_files.remove(path) {
       self.added_files.insert(path.clone());
     }
   }
 
   /// Remove a file
-  pub fn remove(&mut self, path: &PathBuf) {
+  pub fn remove(&mut self, path: &ArcPath) {
     if !self.added_files.remove(path) {
       self.removed_files.insert(path.clone());
     }
@@ -38,6 +48,7 @@ impl IncrementalInfo {
   pub fn reset(&mut self) {
     self.added_files.clear();
     self.removed_files.clear();
+    self.updated_files.clear();
   }
 }
 
@@ -45,11 +56,13 @@ impl IncrementalInfo {
 mod test {
   use std::path::PathBuf;
 
+  use rspack_paths::ArcPath;
+
   use super::IncrementalInfo;
   #[test]
   fn incremental_info_is_available() {
     let mut info = IncrementalInfo::default();
-    let file_a = PathBuf::from("/a");
+    let file_a = ArcPath::from(PathBuf::from("/a"));
 
     info.add(&file_a);
     info.add(&file_a);
@@ -67,5 +80,8 @@ mod test {
     info.remove(&file_a);
     assert_eq!(info.added_files().len(), 0);
     assert_eq!(info.removed_files().len(), 1);
+
+    info.update(&file_a);
+    assert_eq!(info.updated_files().len(), 1);
   }
 }

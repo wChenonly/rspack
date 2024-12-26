@@ -6,7 +6,7 @@ const path = require("path");
 const fs = require("graceful-fs");
 const vm = require("vm");
 const { URL, pathToFileURL, fileURLToPath } = require("url");
-const rimraf = require("rimraf");
+const { rimrafSync } = require("rimraf");
 const checkArrayExpectation = require("./checkArrayExpectation");
 const createLazyTestEnv = require("./helpers/createLazyTestEnv");
 const deprecationTracking = require("./helpers/deprecationTracking");
@@ -174,7 +174,7 @@ const describeCases = config => {
 							testConfig = undefined;
 						});
 						beforeAll(() => {
-							rimraf.sync(cacheDirectory);
+							rimrafSync(cacheDirectory);
 						});
 						const handleFatalError = (err, done) => {
 							const fakeStats = {
@@ -204,7 +204,7 @@ const describeCases = config => {
 							it(
 								`${testName} should pre-compile to fill disk cache (1st)`,
 								done => {
-									rimraf.sync(outputDirectory);
+									rimrafSync(outputDirectory);
 									fs.mkdirSync(outputDirectory, { recursive: true });
 									infraStructureLog.length = 0;
 									const deprecationTracker = deprecationTracking.start();
@@ -248,7 +248,7 @@ const describeCases = config => {
 							it(
 								`${testName} should pre-compile to fill disk cache (2nd)`,
 								done => {
-									rimraf.sync(outputDirectory);
+									rimrafSync(outputDirectory);
 									fs.mkdirSync(outputDirectory, { recursive: true });
 									infraStructureLog.length = 0;
 									const deprecationTracker = deprecationTracking.start();
@@ -321,7 +321,7 @@ const describeCases = config => {
 						it(
 							`${testName} should compile`,
 							done => {
-								rimraf.sync(outputDirectory);
+								rimrafSync(outputDirectory);
 								fs.mkdirSync(outputDirectory, { recursive: true });
 								infraStructureLog.length = 0;
 								const deprecationTracker = deprecationTracking.start();
@@ -567,6 +567,7 @@ const describeCases = config => {
 														}
 														if (esmMode === "unlinked") return esm;
 														return (async () => {
+															if (esmMode === "unlinked") return esm;
 															await esm.link(
 																async (specifier, referencingModule) => {
 																	return await asModule(
@@ -597,64 +598,69 @@ const describeCases = config => {
 																? ns.default
 																: ns;
 														})();
-													} else {
-														if (p in requireCache) {
-															return requireCache[p].exports;
-														}
-														const m = {
-															exports: {}
-														};
-														requireCache[p] = m;
-														const moduleScope = {
-															...baseModuleScope,
-															require: _require.bind(
-																null,
-																path.dirname(p),
-																options
-															),
-															importScripts: url => {
-																expect(url).toMatch(
-																	/^https:\/\/test\.cases\/path\//
-																);
-																_require(
-																	outputDirectory,
-																	options,
-																	`.${url.slice(
-																		"https://test.cases/path".length
-																	)}`
-																);
-															},
-															module: m,
-															exports: m.exports,
-															__dirname: path.dirname(p),
-															__filename: p,
-															_globalAssign: { expect }
-														};
-														if (testConfig.moduleScope) {
-															testConfig.moduleScope(moduleScope);
-														}
-														if (!runInNewContext)
-															content = `Object.assign(global, _globalAssign); ${content}`;
-														const args = Object.keys(moduleScope);
-														const argValues = args.map(arg => moduleScope[arg]);
-														const code = `(function(${args.join(
-															", "
-														)}) {${content}\n})`;
-
-														let oldCurrentScript = document.currentScript;
-														document.currentScript = new CurrentScript(subPath);
-														const fn = runInNewContext
-															? vm.runInNewContext(code, globalContext, p)
-															: vm.runInThisContext(code, p);
-														fn.call(
-															testConfig.nonEsmThis
-																? testConfig.nonEsmThis(module)
-																: m.exports,
-															...argValues
-														);
-														document.currentScript = oldCurrentScript;
-														return m.exports;
 													}
+													const isJSON = p.endsWith(".json");
+													if (isJSON) {
+														return JSON.parse(content);
+													}
+
+													if (p in requireCache) {
+														return requireCache[p].exports;
+													}
+													const m = {
+														exports: {}
+													};
+													requireCache[p] = m;
+
+													const moduleScope = {
+														...baseModuleScope,
+														require: _require.bind(
+															null,
+															path.dirname(p),
+															options
+														),
+														importScripts: url => {
+															expect(url).toMatch(
+																/^https:\/\/test\.cases\/path\//
+															);
+															_require(
+																outputDirectory,
+																options,
+																`.${url.slice(
+																	"https://test.cases/path".length
+																)}`
+															);
+														},
+														module: m,
+														exports: m.exports,
+														__dirname: path.dirname(p),
+														__filename: p,
+														_globalAssign: { expect }
+													};
+													if (testConfig.moduleScope) {
+														testConfig.moduleScope(moduleScope);
+													}
+													if (!runInNewContext)
+														content = `Object.assign(global, _globalAssign); ${content}`;
+													const args = Object.keys(moduleScope);
+													const argValues = args.map(arg => moduleScope[arg]);
+													const code = `(function(${args.join(
+														", "
+													)}) {${content}\n})`;
+
+													let oldCurrentScript = document.currentScript;
+													document.currentScript = new CurrentScript(subPath);
+													const fn = runInNewContext
+														? vm.runInNewContext(code, globalContext, p)
+														: vm.runInThisContext(code, p);
+													fn.call(
+														testConfig.nonEsmThis
+															? testConfig.nonEsmThis(module)
+															: m.exports,
+														...argValues
+													);
+													document.currentScript = oldCurrentScript;
+													return m.exports;
 												} else if (
 													testConfig.modules &&
 													module in testConfig.modules

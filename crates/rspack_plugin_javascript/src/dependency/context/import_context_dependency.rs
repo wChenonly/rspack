@@ -1,7 +1,8 @@
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::{
   AsModuleDependency, Compilation, ContextDependency, ContextOptions, Dependency,
-  DependencyCategory, DependencyId, DependencyTemplate, DependencyType, ModuleGraph,
-  RealDependencyLocation, RuntimeSpec, TemplateContext, TemplateReplaceSource,
+  DependencyCategory, DependencyId, DependencyRange, DependencyTemplate, DependencyType,
+  ModuleGraph, RuntimeSpec, TemplateContext, TemplateReplaceSource,
 };
 use rspack_error::Diagnostic;
 
@@ -9,12 +10,13 @@ use super::{
   context_dependency_template_as_require_call, create_resource_identifier_for_context_dependency,
 };
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct ImportContextDependency {
   id: DependencyId,
   options: ContextOptions,
-  range: RealDependencyLocation,
-  range_callee: RealDependencyLocation,
+  range: DependencyRange,
+  range_callee: DependencyRange,
   resource_identifier: String,
   optional: bool,
   critical: Option<Diagnostic>,
@@ -23,8 +25,8 @@ pub struct ImportContextDependency {
 impl ImportContextDependency {
   pub fn new(
     options: ContextOptions,
-    range: RealDependencyLocation,
-    range_callee: RealDependencyLocation,
+    range: DependencyRange,
+    range_callee: DependencyRange,
     optional: bool,
   ) -> Self {
     let resource_identifier = create_resource_identifier_for_context_dependency(None, &options);
@@ -40,6 +42,7 @@ impl ImportContextDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for ImportContextDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -53,7 +56,7 @@ impl Dependency for ImportContextDependency {
     &DependencyType::ImportContext
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -107,6 +110,7 @@ impl ContextDependency for ImportContextDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for ImportContextDependency {
   fn apply(
     &self,

@@ -1,17 +1,20 @@
+use rspack_cacheable::{cacheable, cacheable_dyn, with::AsPreset};
 use rspack_core::{
   get_dependency_used_by_exports_condition, module_id, AsContextDependency, Compilation,
-  Dependency, DependencyCategory, DependencyCondition, DependencyId, DependencyTemplate,
-  DependencyType, ModuleDependency, RealDependencyLocation, RuntimeGlobals, RuntimeSpec,
+  Dependency, DependencyCategory, DependencyCondition, DependencyId, DependencyRange,
+  DependencyTemplate, DependencyType, ModuleDependency, RuntimeGlobals, RuntimeSpec,
   TemplateContext, TemplateReplaceSource, UsedByExports,
 };
 use swc_core::ecma::atoms::Atom;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct URLDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   request: Atom,
-  range: RealDependencyLocation,
-  range_url: RealDependencyLocation,
+  range: DependencyRange,
+  range_url: DependencyRange,
   used_by_exports: Option<UsedByExports>,
   relative: bool,
 }
@@ -19,8 +22,8 @@ pub struct URLDependency {
 impl URLDependency {
   pub fn new(
     request: Atom,
-    range: RealDependencyLocation,
-    range_url: RealDependencyLocation,
+    range: DependencyRange,
+    range_url: DependencyRange,
     relative: bool,
   ) -> Self {
     Self {
@@ -34,6 +37,7 @@ impl URLDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for URLDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -47,7 +51,7 @@ impl Dependency for URLDependency {
     &DependencyType::NewUrl
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -56,6 +60,7 @@ impl Dependency for URLDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for URLDependency {
   fn request(&self) -> &str {
     &self.request
@@ -74,6 +79,7 @@ impl ModuleDependency for URLDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for URLDependency {
   fn apply(
     &self,

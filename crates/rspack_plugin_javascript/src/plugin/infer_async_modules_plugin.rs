@@ -1,8 +1,8 @@
 use linked_hash_set::LinkedHashSet;
 use rspack_collections::IdentifierSet;
 use rspack_core::{
-  unaffected_cache::{Mutation, Mutations},
-  ApplyContext, Compilation, CompilationFinishModules, CompilerOptions, DependencyType,
+  incremental::{IncrementalPasses, Mutation, Mutations},
+  ApplyContext, Compilation, CompilationFinishModules, CompilerOptions, DependencyType, Logger,
   ModuleGraph, ModuleIdentifier, Plugin, PluginContext,
 };
 use rspack_error::Result;
@@ -14,22 +14,40 @@ pub struct InferAsyncModulesPlugin;
 
 #[plugin_hook(CompilationFinishModules for InferAsyncModulesPlugin)]
 async fn finish_modules(&self, compilation: &mut Compilation) -> Result<()> {
-  let module_graph = compilation.get_module_graph();
-  let modules: IdentifierSet = if compilation
-    .options
-    .incremental()
-    .infer_async_modules_enabled()
+  let modules: IdentifierSet = if let Some(mutations) = compilation
+    .incremental
+    .mutations_read(IncrementalPasses::INFER_ASYNC_MODULES)
   {
-    compilation
-      .unaffected_modules_cache
-      .get_affected_modules_with_module_graph()
-      .lock()
-      .expect("should lock")
-      .clone()
+    mutations
+      .iter()
+      .rfold(IdentifierSet::default(), |mut acc, mutation| {
+        match mutation {
+          Mutation::ModuleBuild { module } => {
+            acc.insert(*module);
+          }
+          Mutation::ModuleRemove { module } => {
+            // we keep the state for the module only if the module revoke first, and then rebuild
+            // otherwise we gc its state
+            if !acc.contains(module) {
+              compilation.async_modules_artifact.remove(module);
+            }
+          }
+          _ => {}
+        };
+        acc
+      })
   } else {
-    module_graph.modules().keys().copied().collect()
+    compilation
+      .get_module_graph()
+      .modules()
+      .keys()
+      .copied()
+      .collect()
   };
 
+  let module_graph = compilation.get_module_graph();
+  let modules_len = modules.len();
+  let total_modules_len = module_graph.modules().len();
   let mut sync_modules = LinkedHashSet::new();
   let mut async_modules = LinkedHashSet::new();
   for module_identifier in modules {
@@ -45,15 +63,30 @@ async fn finish_modules(&self, compilation: &mut Compilation) -> Result<()> {
   }
 
   let mut mutations = compilation
-    .options
-    .incremental()
-    .enabled()
+    .incremental
+    .can_write_mutations()
     .then(Mutations::default);
 
   set_sync_modules(compilation, sync_modules, &mut mutations);
   set_async_modules(compilation, async_modules, &mut mutations);
 
-  if let Some(compilation_mutations) = &mut compilation.mutations
+  if compilation
+    .incremental
+    .can_read_mutations(IncrementalPasses::INFER_ASYNC_MODULES)
+    && let Some(mutations) = &mutations
+  {
+    let logger = compilation.get_logger("rspack.incremental.inferAsyncModules");
+    logger.log(format!(
+      "{} modules are affected, {} in total",
+      modules_len, total_modules_len,
+    ));
+    logger.log(format!(
+      "{} modules are updated by set_async",
+      mutations.len()
+    ));
+  }
+
+  if let Some(compilation_mutations) = compilation.incremental.mutations_write()
     && let Some(mutations) = mutations
   {
     compilation_mutations.extend(mutations);
@@ -73,8 +106,8 @@ fn set_sync_modules(
     let module_graph = compilation.get_module_graph();
     if module_graph
       .get_outgoing_connections(&module)
-      .iter()
       .filter_map(|con| module_graph.module_identifier_by_dependency_id(&con.dependency_id))
+      .filter(|&out| &module != out)
       .any(|module| ModuleGraph::is_async(compilation, module))
     {
       // We can't safely reset is_async to false if there are any outgoing module is async
@@ -90,7 +123,6 @@ fn set_sync_modules(
       let module_graph = compilation.get_module_graph();
       module_graph
         .get_incoming_connections(&module)
-        .iter()
         .filter(|con| {
           module_graph
             .dependency_by_id(&con.dependency_id)
@@ -126,7 +158,6 @@ fn set_async_modules(
       let module_graph = compilation.get_module_graph();
       module_graph
         .get_incoming_connections(&module)
-        .iter()
         .filter(|con| {
           module_graph
             .dependency_by_id(&con.dependency_id)

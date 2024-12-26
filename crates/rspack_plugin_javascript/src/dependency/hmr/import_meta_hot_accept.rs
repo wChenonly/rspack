@@ -1,19 +1,22 @@
+use rspack_cacheable::{cacheable, cacheable_dyn, with::AsPreset};
 use rspack_core::{
   module_id, AsContextDependency, Compilation, Dependency, DependencyCategory, DependencyId,
-  DependencyTemplate, DependencyType, ModuleDependency, RealDependencyLocation, RuntimeSpec,
+  DependencyRange, DependencyTemplate, DependencyType, ModuleDependency, RuntimeSpec,
   TemplateContext, TemplateReplaceSource,
 };
 use swc_core::ecma::atoms::Atom;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct ImportMetaHotAcceptDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   request: Atom,
-  range: RealDependencyLocation,
+  range: DependencyRange,
 }
 
 impl ImportMetaHotAcceptDependency {
-  pub fn new(request: Atom, range: RealDependencyLocation) -> Self {
+  pub fn new(request: Atom, range: DependencyRange) -> Self {
     Self {
       request,
       range,
@@ -22,6 +25,7 @@ impl ImportMetaHotAcceptDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for ImportMetaHotAcceptDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -35,7 +39,7 @@ impl Dependency for ImportMetaHotAcceptDependency {
     &DependencyType::ImportMetaHotAccept
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -44,6 +48,7 @@ impl Dependency for ImportMetaHotAcceptDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for ImportMetaHotAcceptDependency {
   fn request(&self) -> &str {
     &self.request
@@ -62,6 +67,7 @@ impl ModuleDependency for ImportMetaHotAcceptDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for ImportMetaHotAcceptDependency {
   fn apply(
     &self,

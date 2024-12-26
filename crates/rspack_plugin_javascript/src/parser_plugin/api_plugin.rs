@@ -1,6 +1,4 @@
-use rspack_core::{
-  ConstDependency, RealDependencyLocation, RuntimeGlobals, RuntimeRequirementsDependency, SpanExt,
-};
+use rspack_core::{ConstDependency, RuntimeGlobals, RuntimeRequirementsDependency, SpanExt};
 use swc_core::common::Spanned;
 use swc_core::ecma::ast::{CallExpr, Callee, Expr, Ident, UnaryExpr};
 
@@ -48,7 +46,6 @@ fn get_typeof_evaluate_of_api(sym: &str) -> Option<&str> {
   match sym {
     WEBPACK_REQUIRE => Some("function"),
     WEBPACK_HASH => Some("string"),
-    WEBPACK_LAYER => Some("string"),
     WEBPACK_PUBLIC_PATH => Some("string"),
     WEBPACK_MODULES => Some("object"),
     WEBPACK_MODULE => Some("object"),
@@ -71,13 +68,26 @@ fn get_typeof_evaluate_of_api(sym: &str) -> Option<&str> {
 impl JavascriptParserPlugin for APIPlugin {
   fn evaluate_typeof(
     &self,
-    _parser: &mut JavascriptParser,
+    parser: &mut JavascriptParser,
     expr: &UnaryExpr,
     for_name: &str,
   ) -> Option<BasicEvaluatedExpression> {
-    get_typeof_evaluate_of_api(for_name).map(|res| {
-      eval::evaluate_to_string(res.to_string(), expr.span.real_lo(), expr.span.real_hi())
-    })
+    if for_name == WEBPACK_LAYER {
+      let value = if parser.module_layer.is_none() {
+        "object"
+      } else {
+        "string"
+      };
+      Some(eval::evaluate_to_string(
+        value.to_string(),
+        expr.span.real_lo(),
+        expr.span.real_hi(),
+      ))
+    } else {
+      get_typeof_evaluate_of_api(for_name).map(|res| {
+        eval::evaluate_to_string(res.to_string(), expr.span.real_lo(), expr.span.real_hi())
+      })
+    }
   }
 
   fn identifier(
@@ -156,12 +166,12 @@ impl JavascriptParserPlugin for APIPlugin {
         Some(true)
       }
       WEBPACK_MODULE => {
-        let range: RealDependencyLocation = ident.span.into();
         parser
           .presentational_dependencies
           .push(Box::new(ModuleArgumentDependency::new(
             None,
-            range.with_source(parser.source_map.clone()),
+            ident.span.into(),
+            Some(parser.source_map.clone()),
           )));
         Some(true)
       }
@@ -300,6 +310,24 @@ impl JavascriptParserPlugin for APIPlugin {
     }
   }
 
+  fn evaluate_identifier(
+    &self,
+    parser: &mut JavascriptParser,
+    ident: &str,
+    start: u32,
+    end: u32,
+  ) -> Option<eval::BasicEvaluatedExpression> {
+    if ident == WEBPACK_LAYER {
+      if let Some(layer) = parser.module_layer {
+        Some(eval::evaluate_to_string(layer.into(), start, end))
+      } else {
+        Some(eval::evaluate_to_null(start, end))
+      }
+    } else {
+      None
+    }
+  }
+
   fn member(
     &self,
     parser: &mut JavascriptParser,
@@ -325,7 +353,6 @@ impl JavascriptParserPlugin for APIPlugin {
     {
       if s == "require" {
         not_supported_expr!(is_require_extensions, expr, "require.extensions");
-        not_supported_expr!(is_require_ensure, expr, "require.ensure");
         not_supported_expr!(is_require_config, expr, "require.config");
         not_supported_expr!(is_require_version, expr, "require.version");
         not_supported_expr!(is_require_amd, expr, "require.amd");
@@ -371,12 +398,12 @@ impl JavascriptParserPlugin for APIPlugin {
         .push(Box::new(RuntimeRequirementsDependency::new(
           RuntimeGlobals::MODULE_ID,
         )));
-      let range: RealDependencyLocation = expr.span().into();
       parser
         .presentational_dependencies
         .push(Box::new(ModuleArgumentDependency::new(
           Some("id"),
-          range.with_source(parser.source_map.clone()),
+          expr.span().into(),
+          Some(parser.source_map.clone()),
         )));
       Some(true)
     } else {
@@ -413,7 +440,6 @@ impl JavascriptParserPlugin for APIPlugin {
     {
       if s == "require" {
         not_supported_call!(is_require_config, "require.config()");
-        not_supported_call!(is_require_ensure, "require.ensure()");
         not_supported_call!(is_require_include, "require.include()");
         not_supported_call!(is_require_onerror, "require.onError()");
         not_supported_call!(is_require_main_require, "require.main.require()");

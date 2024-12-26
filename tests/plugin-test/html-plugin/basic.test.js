@@ -9,7 +9,7 @@ const path = require("path");
 const fs = require("fs");
 /// DIFF const webpack = require("webpack");
 const webpack = require("@rspack/core");
-const rimraf = require("rimraf");
+const { rimrafSync } = require("rimraf");
 const _ = require("lodash");
 /// DIFF const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const MiniCssExtractPlugin = webpack.CssExtractRspackPlugin;
@@ -119,8 +119,8 @@ function getChunksInfoFromStats(stats) {
 }
 
 describe("HtmlWebpackPlugin", () => {
-  beforeEach((done) => {
-    rimraf(OUTPUT_DIR, done);
+  beforeEach(() => {
+    rimrafSync(OUTPUT_DIR);
   });
 
   it("generates a default index.html file for a single entry point", (done) => {
@@ -337,53 +337,51 @@ describe("HtmlWebpackPlugin", () => {
     );
   });
 
-  // TODO: support function filename
-  // it("allows to use a function to map entry names to filenames", (done) => {
-  //   testHtmlPlugin(
-  //     {
-  //       mode: "production",
-  //       entry: {
-  //         app: path.join(__dirname, "fixtures/index.js"),
-  //       },
-  //       output: {
-  //         path: OUTPUT_DIR,
-  //         filename: "[name]_bundle.js",
-  //       },
-  //       plugins: [
-  //         new HtmlWebpackPlugin({
-  //           filename: (entry) => `${entry}.html`,
-  //         }),
-  //       ],
-  //     },
-  //     ['<script defer src="app_bundle.js'],
-  //     "app.html",
-  //     done,
-  //   );
-  // });
+  it("allows to use a function to map entry names to filenames", (done) => {
+    testHtmlPlugin(
+      {
+        mode: "production",
+        entry: {
+          app: path.join(__dirname, "fixtures/index.js"),
+        },
+        output: {
+          path: OUTPUT_DIR,
+          filename: "[name]_bundle.js",
+        },
+        plugins: [
+          new HtmlWebpackPlugin({
+            filename: (entry) => `${entry}.html`,
+          }),
+        ],
+      },
+      ['<script defer src="app_bundle.js'],
+      "app.html",
+      done,
+    );
+  });
 
-  // TODO: support filename template
-  // it("allows to use [name] for file names", (done) => {
-  //   testHtmlPlugin(
-  //     {
-  //       mode: "production",
-  //       entry: {
-  //         app: path.join(__dirname, "fixtures/index.js"),
-  //       },
-  //       output: {
-  //         path: OUTPUT_DIR,
-  //         filename: "[name]_bundle.js",
-  //       },
-  //       plugins: [
-  //         new HtmlWebpackPlugin({
-  //           filename: "[name].html",
-  //         }),
-  //       ],
-  //     },
-  //     ['<script defer src="app_bundle.js'],
-  //     "app.html",
-  //     done,
-  //   );
-  // });
+  it("allows to use [name] for file names", (done) => {
+    testHtmlPlugin(
+      {
+        mode: "production",
+        entry: {
+          app: path.join(__dirname, "fixtures/index.js"),
+        },
+        output: {
+          path: OUTPUT_DIR,
+          filename: "[name]_bundle.js",
+        },
+        plugins: [
+          new HtmlWebpackPlugin({
+            filename: "[name].html",
+          }),
+        ],
+      },
+      ['<script defer src="app_bundle.js'],
+      "app.html",
+      done,
+    );
+  });
 
   it("picks up src/index.ejs by default", (done) => {
     testHtmlPlugin(
@@ -2782,7 +2780,7 @@ describe("HtmlWebpackPlugin", () => {
           }),
         ],
       },
-      [/<link href="\/[a-z0-9]{20}\/favicon\.ico" rel="icon">/],
+      [/<link href="\/[a-z0-9]{16}\/favicon\.ico" rel="icon">/],
       null,
       done,
     );
@@ -2804,7 +2802,7 @@ describe("HtmlWebpackPlugin", () => {
           }),
         ],
       },
-      [/<link href="[a-z0-9]{20}\/favicon\.ico" rel="icon">/],
+      [/<link href="[a-z0-9]{16}\/favicon\.ico" rel="icon">/],
       null,
       done,
     );
@@ -2936,43 +2934,42 @@ describe("HtmlWebpackPlugin", () => {
     );
   });
 
-  // TODO: support `chunksSortMode`
-  // it("should sort the chunks in auto mode", (done) => {
-  //   testHtmlPlugin(
-  //     {
-  //       mode: "production",
-  //       entry: {
-  //         util: path.join(__dirname, "fixtures/util.js"),
-  //         index: path.join(__dirname, "fixtures/index.js"),
-  //       },
-  //       output: {
-  //         path: OUTPUT_DIR,
-  //         filename: "[name]_bundle.js",
-  //       },
-  //       optimization: {
-  //         splitChunks: {
-  //           cacheGroups: {
-  //             commons: {
-  //               chunks: "initial",
-  //               name: "common",
-  //               enforce: true,
-  //             },
-  //           },
-  //         },
-  //       },
-  //       plugins: [
-  //         new HtmlWebpackPlugin({
-  //           chunksSortMode: "auto",
-  //         }),
-  //       ],
-  //     },
-  //     [
-  //       /(<script defer src="common_bundle.js">.+<script defer src="util_bundle.js">.+<script defer src="index_bundle.js">)|(<script defer src="common_bundle.js">.+<script defer src="index_bundle.js">.+<script defer src="util_bundle.js">)/,
-  //     ],
-  //     null,
-  //     done,
-  //   );
-  // });
+  it("should sort the chunks in auto mode", (done) => {
+    testHtmlPlugin(
+      {
+        mode: "production",
+        entry: {
+          util: path.join(__dirname, "fixtures/util.js"),
+          index: path.join(__dirname, "fixtures/index.js"),
+        },
+        output: {
+          path: OUTPUT_DIR,
+          filename: "[name]_bundle.js",
+        },
+        optimization: {
+          splitChunks: {
+            cacheGroups: {
+              commons: {
+                chunks: "initial",
+                name: "common",
+                enforce: true,
+              },
+            },
+          },
+        },
+        plugins: [
+          new HtmlWebpackPlugin({
+            chunksSortMode: "auto",
+          }),
+        ],
+      },
+      [
+        /(<script defer src="common_bundle.js">.+<script defer src="util_bundle.js">.+<script defer src="index_bundle.js">)|(<script defer src="common_bundle.js">.+<script defer src="index_bundle.js">.+<script defer src="util_bundle.js">)/,
+      ],
+      null,
+      done,
+    );
+  });
 
   // TODO: support `chunksSortMode`
   // it("should sort the chunks in custom (reverse alphabetical) order", (done) => {
@@ -3010,49 +3007,48 @@ describe("HtmlWebpackPlugin", () => {
   //   );
   // });
 
-  // TODO: support `chunksSortMode`
-  // it("should sort manually by the chunks", (done) => {
-  //   testHtmlPlugin(
-  //     {
-  //       mode: "production",
-  //       entry: {
-  //         b: path.join(__dirname, "fixtures/util.js"),
-  //         a: path.join(__dirname, "fixtures/theme.js"),
-  //         d: path.join(__dirname, "fixtures/util.js"),
-  //         c: path.join(__dirname, "fixtures/theme.js"),
-  //       },
-  //       output: {
-  //         path: OUTPUT_DIR,
-  //         filename: "[name]_bundle.js",
-  //       },
-  //       module: {
-  //         rules: [{ test: /\.css$/, loader: "css-loader" }],
-  //       },
-  //       optimization: {
-  //         splitChunks: {
-  //           cacheGroups: {
-  //             commons: {
-  //               chunks: "initial",
-  //               name: "common",
-  //               enforce: true,
-  //             },
-  //           },
-  //         },
-  //       },
-  //       plugins: [
-  //         new HtmlWebpackPlugin({
-  //           chunksSortMode: "manual",
-  //           chunks: ["common", "a", "b", "c"],
-  //         }),
-  //       ],
-  //     },
-  //     [
-  //       /<script defer src="common_bundle.js">.+<script defer src="a_bundle.js">.+<script defer src="b_bundle.js">.+<script defer src="c_bundle.js">/,
-  //     ],
-  //     null,
-  //     done,
-  //   );
-  // });
+  it("should sort manually by the chunks", (done) => {
+    testHtmlPlugin(
+      {
+        mode: "production",
+        entry: {
+          b: path.join(__dirname, "fixtures/util.js"),
+          a: path.join(__dirname, "fixtures/theme.js"),
+          d: path.join(__dirname, "fixtures/util.js"),
+          c: path.join(__dirname, "fixtures/theme.js"),
+        },
+        output: {
+          path: OUTPUT_DIR,
+          filename: "[name]_bundle.js",
+        },
+        module: {
+          rules: [{ test: /\.css$/, loader: "css-loader" }],
+        },
+        optimization: {
+          splitChunks: {
+            cacheGroups: {
+              commons: {
+                chunks: "initial",
+                name: "common",
+                enforce: true,
+              },
+            },
+          },
+        },
+        plugins: [
+          new HtmlWebpackPlugin({
+            chunksSortMode: "manual",
+            chunks: ["common", "a", "b", "c"],
+          }),
+        ],
+      },
+      [
+        /<script defer src="common_bundle.js">.+<script defer src="a_bundle.js">.+<script defer src="b_bundle.js">.+<script defer src="c_bundle.js">/,
+      ],
+      null,
+      done,
+    );
+  });
 
   it("should add the webpack compilation object as a property of the templateParam object", (done) => {
     testHtmlPlugin(

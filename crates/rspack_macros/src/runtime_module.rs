@@ -19,12 +19,18 @@ pub fn impl_runtime_module(
     );
     fields.named.push(
       syn::Field::parse_named
-        .parse2(quote! { pub custom_source: Option<::rspack_core::rspack_sources::BoxSource> })
+        .parse2(quote! {
+            #[cacheable(with=rspack_cacheable::with::AsOption<rspack_cacheable::with::AsPreset>)]
+            pub custom_source: Option<::rspack_core::rspack_sources::BoxSource>
+        })
         .expect("Failed to parse new field for custom_source"),
     );
     fields.named.push(
       syn::Field::parse_named
-        .parse2(quote! { pub cached_generated_code: std::sync::RwLock<Option<::rspack_core::rspack_sources::BoxSource>> })
+            .parse2(quote! {
+                #[cacheable(with=rspack_cacheable::with::Skip)]
+                pub cached_generated_code: std::sync::RwLock<Option<::rspack_core::rspack_sources::BoxSource>>
+            })
         .expect("Failed to parse new field for cached_generated_code"),
     );
   }
@@ -47,6 +53,7 @@ pub fn impl_runtime_module(
   };
 
   quote! {
+    #[rspack_cacheable::cacheable]
     #input
 
     impl #impl_generics #name #ty_generics #where_clause {
@@ -100,11 +107,16 @@ pub fn impl_runtime_module(
         unreachable!()
       }
 
+      fn remove_dependency_id(&mut self, _: ::rspack_core::DependencyId) {
+        unreachable!()
+      }
+
       fn get_dependencies(&self) -> &[::rspack_core::DependencyId] {
         unreachable!()
       }
     }
 
+    #[rspack_cacheable::cacheable_dyn]
     impl #impl_generics ::rspack_core::Module for #name #ty_generics #where_clause {
       fn module_type(&self) -> &::rspack_core::ModuleType {
         &::rspack_core::ModuleType::Runtime
@@ -114,8 +126,11 @@ pub fn impl_runtime_module(
         &[::rspack_core::SourceType::JavaScript]
       }
 
-      fn size(&self, _source_type: Option<&::rspack_core::SourceType>, compilation: &::rspack_core::Compilation) -> f64 {
-        self.get_generated_code(compilation).ok().map(|source| source.size() as f64).unwrap_or(0f64)
+      fn size(&self, _source_type: Option<&::rspack_core::SourceType>, compilation: Option<&::rspack_core::Compilation>) -> f64 {
+        match compilation {
+          Some(compilation) => self.get_generated_code(compilation).ok().map(|source| source.size() as f64).unwrap_or(0f64),
+          None => 0f64
+        }
       }
 
       fn readable_identifier(&self, _context: &::rspack_core::Context) -> std::borrow::Cow<str> {
@@ -156,11 +171,6 @@ pub fn impl_runtime_module(
       ) -> rspack_error::Result<::rspack_core::CodeGenerationResult> {
         let mut result = ::rspack_core::CodeGenerationResult::default();
         result.add(::rspack_core::SourceType::Runtime, self.get_generated_code(compilation)?);
-        result.set_hash(
-          &compilation.options.output.hash_function,
-          &compilation.options.output.hash_digest,
-          &compilation.options.output.hash_salt,
-        );
         Ok(result)
       }
 
@@ -173,7 +183,11 @@ pub fn impl_runtime_module(
         use rspack_util::ext::DynHash;
         self.name().dyn_hash(hasher);
         self.stage().dyn_hash(hasher);
-        self.get_generated_code(compilation)?.dyn_hash(hasher);
+        if self.full_hash() || self.dependent_hash() {
+          self.generate_with_custom(compilation)?.dyn_hash(hasher);
+        } else {
+          self.get_generated_code(compilation)?.dyn_hash(hasher);
+        }
         Ok(())
       }
     }

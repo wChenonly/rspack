@@ -4,6 +4,7 @@ import { merge } from "webpack-merge";
 
 import { ECompilerEvent } from "../compiler";
 import { readConfigFile } from "../helper";
+import checkArrayExpectation from "../helper/legacy/checkArrayExpectation";
 import copyDiff from "../helper/legacy/copyDiff";
 import type {
 	ECompilerType,
@@ -82,7 +83,75 @@ export class WatchProcessor<
 	}
 
 	async check(env: ITestEnv, context: ITestContext) {
-		await super.check(env, context);
+		const testConfig = context.getTestConfig();
+		if (testConfig.noTest) return;
+
+		const errors: Array<{ message: string; stack?: string }> = (
+			context.getError(this._options.name) || []
+		).map(e => ({
+			message: e.message,
+			stack: e.stack
+		}));
+		const warnings: Array<{ message: string; stack?: string }> = [];
+		const compiler = this.getCompiler(context);
+		const stats = compiler.getStats();
+		const checkStats = testConfig.checkStats || (() => true);
+
+		if (stats) {
+			fs.writeFileSync(
+				path.join(context.getDist(), "stats.txt"),
+				stats.toString({
+					preset: "verbose",
+					colors: false
+				}),
+				"utf-8"
+			);
+			const jsonStats = stats.toJson({
+				errorDetails: true
+			});
+
+			if (!checkStats(this._watchOptions.stepName, jsonStats)) {
+				throw new Error("stats check failed");
+			}
+			fs.writeFileSync(
+				path.join(context.getDist(), "stats.json"),
+				JSON.stringify(jsonStats, null, 2),
+				"utf-8"
+			);
+			if (jsonStats.errors) {
+				errors.push(...jsonStats.errors);
+			}
+			if (jsonStats.warnings) {
+				warnings.push(...jsonStats.warnings);
+			}
+		}
+		await new Promise<void>((resolve, reject) => {
+			checkArrayExpectation(
+				path.join(context.getSource(), this._watchOptions.stepName),
+				{ errors },
+				"error",
+				"Error",
+				reject
+			);
+			resolve();
+		});
+
+		await new Promise<void>((resolve, reject) => {
+			checkArrayExpectation(
+				path.join(context.getSource(), this._watchOptions.stepName),
+				{ warnings },
+				"warning",
+				"Warning",
+				reject
+			);
+			resolve();
+		});
+
+		// clear error if checked
+		if (fs.existsSync(context.getSource("errors.js"))) {
+			context.clearError(this._options.name);
+		}
+
 		// check hash
 		fs.renameSync(
 			path.join(context.getDist(), "stats.txt"),
@@ -188,6 +257,7 @@ export class WatchProcessor<
 	}
 
 	static findBundle<T extends ECompilerType>(
+		this: IWatchProcessorOptions<T>,
 		index: number,
 		context: ITestContext,
 		options: TCompilerOptions<T>
@@ -195,7 +265,7 @@ export class WatchProcessor<
 		const testConfig = context.getTestConfig();
 
 		if (typeof testConfig.findBundle === "function") {
-			return testConfig.findBundle!(index, options);
+			return testConfig.findBundle!(index, options, this.stepName);
 		}
 		return "./bundle.js";
 	}

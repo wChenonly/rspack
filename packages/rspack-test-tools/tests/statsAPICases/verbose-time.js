@@ -13,7 +13,7 @@ module.exports = {
 				?.toString({ all: false, logging: "verbose" })
 				.replace(/\d+ ms/g, "X ms")
 		).toMatchInlineSnapshot(`
-		"LOG from rspack.Compilation
+		LOG from rspack.Compilation
 		<t> finish modules: X ms
 		<t> optimize dependencies: X ms
 		<t> create chunks: X ms
@@ -59,14 +59,18 @@ module.exports = {
 		LOG from rspack.RemoveEmptyChunksPlugin
 		<t> remove empty chunks: X ms
 
+		LOG from rspack.SideEffectsFlagPlugin
+		<t> prepare connections: X ms
+		<t> find optimizable connections: X ms
+		<t> do optimize connections: X ms
+		<t> update connections: X ms
+		    optimized 0 connections
+
 		LOG from rspack.SplitChunksPlugin
 		<t> prepare module group map: X ms
 		<t> ensure min size fit: X ms
 		<t> process module group map: X ms
 		<t> ensure max size fit: X ms
-
-		LOG from rspack.WarnCaseSensitiveModulesPlugin
-		<t> check case sensitive modules: X ms
 
 		LOG from rspack.buildChunkGraph
 		<t> prepare entrypoints: X ms
@@ -76,7 +80,6 @@ module.exports = {
 		    0 chunk groups connected
 		    0 chunk groups processed for merging (0 module sets)
 		    0 chunk group info updated (0 already connected chunk groups reconnected)
-		"
 	`);
 	}
 };

@@ -1,8 +1,8 @@
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
-  ChunkUkey, Compilation, FilenameTemplate, PathData, RuntimeGlobals, RuntimeModule,
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
+  ChunkUkey, Compilation, FilenameTemplate, PathData, RuntimeGlobals, RuntimeModule, SourceType,
 };
 use rspack_util::infallible::ResultInfallibleExt;
 
@@ -34,14 +34,23 @@ impl RuntimeModule for GetChunkUpdateFilenameRuntimeModule {
         .get_path(
           &FilenameTemplate::from(compilation.options.output.hot_update_chunk_filename.clone()),
           PathData::default()
-            .chunk(chunk)
+            .chunk_hash_optional(chunk.rendered_hash(
+              &compilation.chunk_hashes_artifact,
+              compilation.options.output.hash_digest_length,
+            ))
+            .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+            .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+              &compilation.chunk_hashes_artifact,
+              &SourceType::JavaScript,
+              compilation.options.output.hash_digest_length,
+            ))
             .hash(format!("' + {}() + '", RuntimeGlobals::GET_FULL_HASH).as_str())
             .id("' + chunkId + '")
-            .runtime(&chunk.runtime),
+            .runtime(chunk.runtime().as_str()),
         )
         .always_ok();
       Ok(
-        RawSource::from(format!(
+        RawStringSource::from(format!(
           "{} = function (chunkId) {{
             return '{}';
          }};

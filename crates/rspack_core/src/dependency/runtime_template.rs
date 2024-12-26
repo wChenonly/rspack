@@ -8,8 +8,9 @@ use crate::{
   compile_boolean_matcher_from_lists, contextify, property_access, to_comment, to_normal_comment,
   AsyncDependenciesBlockIdentifier, ChunkGraph, Compilation, CompilerOptions, DependenciesBlock,
   DependencyId, Environment, ExportsArgument, ExportsType, FakeNamespaceObjectMode,
-  InitFragmentExt, InitFragmentKey, InitFragmentStage, Module, ModuleGraph, ModuleIdentifier,
-  NormalInitFragment, PathInfo, RuntimeCondition, RuntimeGlobals, RuntimeSpec, TemplateContext,
+  InitFragmentExt, InitFragmentKey, InitFragmentStage, Module, ModuleGraph, ModuleId,
+  ModuleIdentifier, NormalInitFragment, PathInfo, RuntimeCondition, RuntimeGlobals, RuntimeSpec,
+  TemplateContext,
 };
 
 pub fn runtime_condition_expression(
@@ -99,7 +100,7 @@ pub fn export_from_import(
   default_interop: bool,
   request: &str,
   import_var: &str,
-  mut export_name: Vec<Atom>,
+  export_name: &[Atom],
   id: &DependencyId,
   is_call: bool,
   call_context: bool,
@@ -123,6 +124,7 @@ pub fn export_from_import(
 
   let exports_type = get_exports_type(&compilation.get_module_graph(), id, &module.identifier());
 
+  let mut exclude_default_export_name = None;
   if default_interop {
     if !export_name.is_empty()
       && let Some(first_export_name) = export_name.first()
@@ -150,7 +152,7 @@ pub fn export_from_import(
           }
         }
         ExportsType::DefaultOnly | ExportsType::DefaultWithNamed => {
-          export_name = export_name[1..].to_vec();
+          exclude_default_export_name = Some(export_name[1..].to_vec());
         }
         _ => {}
       }
@@ -176,9 +178,9 @@ pub fn export_from_import(
       init_fragments.push(
         NormalInitFragment::new(
           name.clone(),
-          InitFragmentStage::StageHarmonyExports,
+          InitFragmentStage::StageESMExports,
           -1,
-          InitFragmentKey::HarmonyFakeNamespaceObjectFragment(name),
+          InitFragmentKey::ESMFakeNamespaceObjectFragment(name),
           None,
         )
         .boxed(),
@@ -203,6 +205,9 @@ pub fn export_from_import(
     }
   }
 
+  let export_name = exclude_default_export_name
+    .as_deref()
+    .unwrap_or(export_name);
   if !export_name.is_empty() {
     let used_name: Cow<Vec<Atom>> = {
       let exports_info = compilation
@@ -211,7 +216,7 @@ pub fn export_from_import(
       let used = exports_info.get_used_name(
         &compilation.get_module_graph(),
         *runtime,
-        crate::UsedName::Vec(export_name.clone()),
+        crate::UsedName::Vec(export_name.to_vec()),
       );
       if let Some(used) = used {
         let used = match used {
@@ -222,12 +227,12 @@ pub fn export_from_import(
       } else {
         return format!(
           "{} undefined",
-          to_normal_comment(&property_access(&export_name, 0))
+          to_normal_comment(&property_access(export_name, 0))
         );
       }
     };
     let comment = if *used_name != export_name {
-      to_normal_comment(&property_access(&export_name, 0))
+      to_normal_comment(&property_access(export_name, 0))
     } else {
       String::new()
     };
@@ -258,7 +263,7 @@ pub fn get_exports_type(
   let strict = module_graph
     .module_by_identifier(parent_module)
     .expect("should have mgm")
-    .get_strict_harmony_module();
+    .get_strict_esm_module();
   get_exports_type_with_strict(module_graph, id, strict)
 }
 
@@ -322,7 +327,7 @@ fn comment(compiler_options: &CompilerOptions, comment_options: CommentOptions) 
 pub fn module_id_expr(
   compiler_options: &CompilerOptions,
   request: &str,
-  module_id: &str,
+  module_id: &ModuleId,
 ) -> String {
   format!(
     "{}{}",
@@ -333,9 +338,9 @@ pub fn module_id_expr(
         ..Default::default()
       }
     ),
-    match module_id.parse::<i32>() {
-      Ok(id) => serde_json::to_string(&id),
-      Err(_) => serde_json::to_string(module_id),
+    match module_id.as_number() {
+      Some(id) => serde_json::to_string(&id),
+      None => serde_json::to_string(module_id),
     }
     .expect("should render module id")
   )
@@ -350,7 +355,8 @@ pub fn module_id(
   if let Some(module_identifier) = compilation
     .get_module_graph()
     .module_identifier_by_dependency_id(id)
-    && let Some(module_id) = compilation.chunk_graph.get_module_id(*module_identifier)
+    && let Some(module_id) =
+      ChunkGraph::get_module_id(&compilation.module_ids_artifact, *module_identifier)
   {
     module_id_expr(&compilation.options, request, module_id)
   } else if weak {
@@ -385,7 +391,7 @@ pub fn import_statement(
   let opt_declaration = if update { "" } else { "var " };
 
   let import_content = format!(
-    "/* harmony import */{opt_declaration}{import_var} = {}({module_id_expr});\n",
+    "/* ESM import */{opt_declaration}{import_var} = {}({module_id_expr});\n",
     RuntimeGlobals::REQUIRE
   );
 
@@ -395,7 +401,7 @@ pub fn import_statement(
     return (
       import_content,
       format!(
-        "/* harmony import */{opt_declaration}{import_var}_default = /*#__PURE__*/{}({import_var});\n",
+        "/* ESM import */{opt_declaration}{import_var}_default = /*#__PURE__*/{}({import_var});\n",
         RuntimeGlobals::COMPAT_GET_DEFAULT_EXPORT,
       ),
     );
@@ -578,12 +584,19 @@ pub fn block_promise(
     .chunks
     .iter()
     .map(|c| compilation.chunk_by_ukey.expect_get(c))
-    .filter(|c| !c.has_runtime(&compilation.chunk_group_by_ukey) && c.id.is_some())
+    .filter(|c| {
+      !c.has_runtime(&compilation.chunk_group_by_ukey)
+        && c.id(&compilation.chunk_ids_artifact).is_some()
+    })
     .collect::<Vec<_>>();
 
   if chunks.len() == 1 {
-    let chunk_id = serde_json::to_string(chunks[0].id.as_ref().expect("should have chunk.id"))
-      .expect("should able to json stringify");
+    let chunk_id = serde_json::to_string(
+      chunks[0]
+        .id(&compilation.chunk_ids_artifact)
+        .expect("should have chunk.id"),
+    )
+    .expect("should able to json stringify");
     runtime_requirements.insert(RuntimeGlobals::ENSURE_CHUNK);
 
     let fetch_priority = chunk_group
@@ -621,8 +634,11 @@ pub fn block_promise(
         .map(|c| format!(
           "{}({}{})",
           RuntimeGlobals::ENSURE_CHUNK,
-          serde_json::to_string(c.id.as_ref().expect("should have chunk.id"))
-            .expect("should able to json stringify"),
+          serde_json::to_string(
+            c.id(&compilation.chunk_ids_artifact)
+              .expect("should have chunk.id")
+          )
+          .expect("should able to json stringify"),
           fetch_priority
             .map(|x| format!(r#", "{x}""#))
             .unwrap_or_default()
@@ -645,7 +661,8 @@ pub fn module_raw(
   if let Some(module_identifier) = compilation
     .get_module_graph()
     .module_identifier_by_dependency_id(id)
-    && let Some(module_id) = compilation.chunk_graph.get_module_id(*module_identifier)
+    && let Some(module_id) =
+      ChunkGraph::get_module_id(&compilation.module_ids_artifact, *module_identifier)
   {
     runtime_requirements.insert(RuntimeGlobals::REQUIRE);
     format!(
@@ -771,6 +788,7 @@ pub fn define_es_module_flag_statement(
 #[allow(unused_imports)]
 mod test_items_to_regexp {
   use crate::items_to_regexp;
+
   #[test]
   fn basic() {
     assert_eq!(
@@ -811,6 +829,59 @@ mod test_items_to_regexp {
           .collect::<Vec<_>>(),
       ),
       "[1234a]".to_string()
+    );
+
+    assert_eq!(
+      items_to_regexp(
+        vec!["foo_js", "_js"]
+          .into_iter()
+          .map(String::from)
+          .collect::<Vec<_>>(),
+      ),
+      "(|foo)_js".to_string()
+    );
+  }
+
+  #[test]
+  fn multibyte() {
+    assert_eq!(
+      items_to_regexp(
+        vec!["🍉", "🍊", "🍓", "🍐", "🍍🫙"]
+          .into_iter()
+          .map(String::from)
+          .collect::<Vec<_>>(),
+      ),
+      "([🍉🍊🍐🍓]|🍍🫙)".to_string()
+    );
+
+    assert_eq!(
+      items_to_regexp(
+        vec!["🫙🍉", "🫙🍊", "🫙🍓", "🫙🍐", "🍽🍍"]
+          .into_iter()
+          .map(String::from)
+          .collect::<Vec<_>>(),
+      ),
+      "(🫙[🍉🍊🍐🍓]|🍽🍍)".to_string()
+    );
+
+    assert_eq!(
+      items_to_regexp(
+        vec!["🍉🍭", "🍊🍭", "🍓🍭", "🍐🍭", "🍍🫙"]
+          .into_iter()
+          .map(String::from)
+          .collect::<Vec<_>>(),
+      ),
+      "([🍉🍊🍐🍓]🍭|🍍🫙)".to_string()
+    );
+
+    assert_eq!(
+      items_to_regexp(
+        vec!["🍉", "🍊", "🍓", "🍐", "🫙"]
+          .into_iter()
+          .map(String::from)
+          .collect::<Vec<_>>(),
+      ),
+      "[🍉🍊🍐🍓🫙]".to_string()
     );
   }
 }

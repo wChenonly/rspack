@@ -11,9 +11,10 @@ use json::{
   },
   JsonValue,
 };
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::{
   diagnostics::ModuleParseError,
-  rspack_sources::{BoxSource, RawSource, Source, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, Source, SourceExt},
   BuildMetaDefaultObject, BuildMetaExportsType, ChunkGraph, CompilerOptions, ExportsInfo,
   GenerateContext, Module, ModuleGraph, ParserAndGenerator, Plugin, RuntimeGlobals, RuntimeSpec,
   SourceType, UsageState, NAMESPACE_OBJECT_EXPORT,
@@ -29,9 +30,13 @@ use crate::json_exports_dependency::JsonExportsDependency;
 mod json_exports_dependency;
 mod utils;
 
+#[cacheable]
 #[derive(Debug)]
-struct JsonParserAndGenerator;
+struct JsonParserAndGenerator {
+  pub exports_depth: u32,
+}
 
+#[cacheable_dyn]
 impl ParserAndGenerator for JsonParserAndGenerator {
   fn source_types(&self) -> &[SourceType] {
     &[SourceType::JavaScript]
@@ -84,7 +89,8 @@ impl ParserAndGenerator for JsonParserAndGenerator {
         ExceededDepthLimit | WrongType(_) | FailedUtf8Parsing => diagnostic!("{e}").boxed(),
         UnexpectedEndOfJson => {
           // End offset of json file
-          let offset = source.len() - 1;
+          let length = source.len();
+          let offset = if length > 0 { length - 1 } else { length };
           TraceableError::from_file(
             source.into_owned(),
             offset,
@@ -115,7 +121,10 @@ impl ParserAndGenerator for JsonParserAndGenerator {
       rspack_core::ParseResult {
         presentational_dependencies: vec![],
         dependencies: if let Some(data) = data {
-          vec![Box::new(JsonExportsDependency::new(data))]
+          vec![Box::new(JsonExportsDependency::new(
+            data,
+            self.exports_depth,
+          ))]
         } else {
           vec![]
         },
@@ -145,9 +154,6 @@ impl ParserAndGenerator for JsonParserAndGenerator {
     let module_graph = compilation.get_module_graph();
     match generate_context.requested_source_type {
       SourceType::JavaScript => {
-        generate_context
-          .runtime_requirements
-          .insert(RuntimeGlobals::MODULE);
         let module = module_graph
           .module_by_identifier(&module.identifier())
           .expect("should have module identifier");
@@ -184,9 +190,12 @@ impl ParserAndGenerator for JsonParserAndGenerator {
           scope.register_namespace_export(NAMESPACE_OBJECT_EXPORT);
           format!("var {NAMESPACE_OBJECT_EXPORT} = {json_expr}")
         } else {
+          generate_context
+            .runtime_requirements
+            .insert(RuntimeGlobals::MODULE);
           format!(r#"module.exports = {}"#, json_expr)
         };
-        Ok(RawSource::from(content).boxed())
+        Ok(RawStringSource::from(content).boxed())
       }
       _ => panic!(
         "Unsupported source type: {:?}",
@@ -220,7 +229,15 @@ impl Plugin for JsonPlugin {
   ) -> Result<()> {
     ctx.context.register_parser_and_generator_builder(
       rspack_core::ModuleType::Json,
-      Box::new(|_, _| Box::new(JsonParserAndGenerator {})),
+      Box::new(|p, _| {
+        let p = p
+          .and_then(|p| p.get_json())
+          .expect("should have JsonParserOptions");
+
+        Box::new(JsonParserAndGenerator {
+          exports_depth: p.exports_depth.expect("should have exports_depth"),
+        })
+      }),
     );
 
     Ok(())

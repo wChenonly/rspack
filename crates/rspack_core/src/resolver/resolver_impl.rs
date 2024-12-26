@@ -8,7 +8,7 @@ use rspack_error::{
   miette::{diagnostic, Diagnostic},
   DiagnosticExt, Severity, TraceableError,
 };
-use rspack_fs::ReadableFileSystem;
+use rspack_fs::FileSystem;
 use rspack_loader_runner::DescriptionData;
 use rspack_paths::AssertUtf8;
 use rustc_hash::FxHashSet as HashSet;
@@ -35,7 +35,7 @@ pub enum ResolveInnerOptions<'a> {
   RspackResolver(&'a rspack_resolver::ResolveOptions),
 }
 
-impl<'a> fmt::Debug for ResolveInnerOptions<'a> {
+impl fmt::Debug for ResolveInnerOptions<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self {
       Self::RspackResolver(options) => {
@@ -45,7 +45,7 @@ impl<'a> fmt::Debug for ResolveInnerOptions<'a> {
   }
 }
 
-impl<'a> ResolveInnerOptions<'a> {
+impl ResolveInnerOptions<'_> {
   pub fn is_enforce_extension_enabled(&self) -> bool {
     match self {
       Self::RspackResolver(options) => matches!(
@@ -83,11 +83,11 @@ pub struct Resolver {
 }
 
 impl Resolver {
-  pub fn new(options: Resolve, fs: Arc<dyn ReadableFileSystem>) -> Self {
+  pub fn new(options: Resolve, fs: Arc<dyn FileSystem>) -> Self {
     Self::new_rspack_resolver(options, fs)
   }
 
-  fn new_rspack_resolver(options: Resolve, fs: Arc<dyn ReadableFileSystem>) -> Self {
+  fn new_rspack_resolver(options: Resolve, fs: Arc<dyn FileSystem>) -> Self {
     let options = to_rspack_resolver_options(options, false, DependencyCategory::Unknown);
     let boxfs = BoxFS::new(fs);
     let resolver = rspack_resolver::ResolverGeneric::new_with_file_system(boxfs, options);

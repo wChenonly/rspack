@@ -1,7 +1,6 @@
-use super::Incremental;
 use crate::{
   CacheOptions, Context, Experiments, Mode, ModuleOptions, NodeOption, Optimization, OutputOptions,
-  Resolve, SnapshotOptions, StatsOptions,
+  Resolve, StatsOptions,
 };
 
 #[derive(Debug)]
@@ -13,20 +12,14 @@ pub struct CompilerOptions {
   pub resolve_loader: Resolve,
   pub module: ModuleOptions,
   pub stats: StatsOptions,
-  pub snapshot: SnapshotOptions,
   pub cache: CacheOptions,
   pub experiments: Experiments,
   pub node: Option<NodeOption>,
   pub optimization: Optimization,
   pub profile: bool,
+  pub amd: Option<String>,
   pub bail: bool,
   pub __references: References,
 }
 
 pub type References = serde_json::Map<String, serde_json::Value>;
-
-impl CompilerOptions {
-  pub fn incremental(&self) -> &Incremental {
-    &self.experiments.incremental
-  }
-}

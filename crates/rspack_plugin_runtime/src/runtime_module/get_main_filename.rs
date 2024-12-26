@@ -1,8 +1,8 @@
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
-  ChunkUkey, Compilation, Filename, PathData, RuntimeGlobals, RuntimeModule,
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
+  ChunkUkey, Compilation, Filename, PathData, RuntimeGlobals, RuntimeModule, SourceType,
 };
 
 #[impl_runtime_module]
@@ -36,12 +36,26 @@ impl RuntimeModule for GetMainFilenameRuntimeModule {
       let filename = compilation.get_path(
         &self.filename,
         PathData::default()
-          .chunk(chunk)
+          .chunk_id_optional(
+            chunk
+              .id(&compilation.chunk_ids_artifact)
+              .map(|id| id.as_str()),
+          )
+          .chunk_hash_optional(chunk.rendered_hash(
+            &compilation.chunk_hashes_artifact,
+            compilation.options.output.hash_digest_length,
+          ))
+          .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+          .content_hash_optional(chunk.rendered_content_hash_by_source_type(
+            &compilation.chunk_hashes_artifact,
+            &SourceType::JavaScript,
+            compilation.options.output.hash_digest_length,
+          ))
           .hash(format!("\" + {}() + \"", RuntimeGlobals::GET_FULL_HASH).as_str())
-          .runtime(&chunk.runtime),
+          .runtime(chunk.runtime().as_str()),
       )?;
       Ok(
-        RawSource::from(format!(
+        RawStringSource::from(format!(
           "{} = function () {{
             return \"{}\";
          }};

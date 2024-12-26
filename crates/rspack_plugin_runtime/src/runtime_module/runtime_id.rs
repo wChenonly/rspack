@@ -2,7 +2,7 @@ use itertools::Itertools;
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   ChunkUkey, Compilation, RuntimeGlobals, RuntimeModule,
 };
 
@@ -32,7 +32,7 @@ impl RuntimeModule for RuntimeIdRuntimeModule {
     if let Some(chunk_ukey) = self.chunk {
       let chunk = compilation.chunk_by_ukey.expect_get(&chunk_ukey);
 
-      let runtime = &chunk.runtime;
+      let runtime = chunk.runtime();
 
       if runtime.len() > 1 {
         panic!("RuntimeIdRuntimeModule must be in a single runtime");
@@ -48,7 +48,7 @@ impl RuntimeModule for RuntimeIdRuntimeModule {
       );
 
       Ok(
-        RawSource::from(format!(
+        RawStringSource::from(format!(
           "{} = {};",
           RuntimeGlobals::RUNTIME_ID,
           serde_json::to_string(&id).expect("Invalid json string")

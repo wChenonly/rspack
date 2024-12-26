@@ -1,18 +1,25 @@
 use lightningcss::targets::Browsers;
+use rspack_cacheable::{
+  cacheable,
+  with::{AsOption, AsPreset},
+};
 use serde::Deserialize;
 
+#[cacheable]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
   pub custom_media: bool,
 }
 
+#[cacheable]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NonStandard {
   pub deep_selector_combinator: bool,
 }
 
+#[cacheable]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PseudoClasses {
@@ -23,10 +30,12 @@ pub struct PseudoClasses {
   pub focus_within: Option<String>,
 }
 
+#[cacheable]
 #[derive(Debug, Default)]
 pub struct Config {
   pub minify: Option<bool>,
   pub error_recovery: Option<bool>,
+  #[cacheable(with=AsOption<AsPreset>)]
   pub targets: Option<Browsers>,
   pub include: Option<u32>,
   pub exclude: Option<u32>,
@@ -44,7 +53,9 @@ pub struct RawConfig {
   pub targets: Option<Vec<String>>,
   pub include: Option<u32>,
   pub exclude: Option<u32>,
+  // TODO: deprecate `draft` in favor of `drafts`
   pub draft: Option<Draft>,
+  pub drafts: Option<Draft>,
   pub non_standard: Option<NonStandard>,
   pub pseudo_classes: Option<PseudoClasses>,
   pub unused_symbols: Option<Vec<String>>,
@@ -64,7 +75,8 @@ impl TryFrom<RawConfig> for Config {
         .flatten(),
       include: value.include,
       exclude: value.exclude,
-      draft: value.draft,
+      // We should use `drafts` if it is present, otherwise use `draft`
+      draft: value.drafts.or(value.draft),
       non_standard: value.non_standard,
       pseudo_classes: value.pseudo_classes,
       unused_symbols: value.unused_symbols,

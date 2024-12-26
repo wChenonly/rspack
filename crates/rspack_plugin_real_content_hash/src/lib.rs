@@ -6,12 +6,12 @@ use std::{
   sync::LazyLock,
 };
 
-use derivative::Derivative;
+use derive_more::Debug;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use regex::{Captures, Regex};
 use rspack_core::{
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   AssetInfo, Compilation, CompilationProcessAssets, Logger, Plugin, PluginContext,
 };
 use rspack_error::Result;
@@ -178,18 +178,17 @@ fn inner_impl(compilation: &mut Compilation) -> Result<()> {
   Ok(())
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 struct AssetData {
   own_hashes: HashSet<String>,
   referenced_hashes: HashSet<String>,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   old_source: BoxSource,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   content: AssetDataContent,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   new_source: OnceCell<BoxSource>,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   new_source_without_own: OnceCell<BoxSource>,
 }
 
@@ -258,7 +257,7 @@ impl AssetData {
             .get(hash)
             .expect("RealContentHashPlugin: should have new hash")
         });
-        return RawSource::from(new_content.into_owned()).boxed();
+        return RawStringSource::from(new_content.into_owned()).boxed();
       }
       self.old_source.clone()
     })

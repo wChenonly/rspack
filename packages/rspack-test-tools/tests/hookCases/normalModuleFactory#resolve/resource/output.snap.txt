@@ -40,7 +40,7 @@ return module.exports;
 /************************************************************************/
 // webpack/runtime/compat_get_default_export
 (() => {
-// getDefaultExport function for compatibility with non-harmony modules
+// getDefaultExport function for compatibility with non-ESM modules
 __webpack_require__.n = function (module) {
 	var getter = module && module.__esModule ?
 		function () { return module['default']; } :
@@ -71,7 +71,7 @@ __webpack_require__.o = function (obj, prop) {
 
 })();
 /************************************************************************/
-// This entry need to be wrapped in an IIFE because it need to be in strict mode.
+// This entry needs to be wrapped in an IIFE because it needs to be in strict mode.
 (() => {
 "use strict";
 

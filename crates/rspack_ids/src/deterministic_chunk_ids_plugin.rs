@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-
+use rspack_collections::DatabaseItem;
 use rspack_core::{ApplyContext, CompilationChunkIds, CompilerOptions, Plugin, PluginContext};
 use rspack_error::Result;
 use rspack_hook::{plugin, plugin_hook};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use crate::id_helpers::{
   assign_deterministic_ids, compare_chunks_natural, get_full_chunk_name, get_used_chunk_ids,
@@ -40,14 +40,23 @@ fn chunk_ids(&self, compilation: &mut rspack_core::Compilation) -> rspack_error:
   let chunks = compilation
     .chunk_by_ukey
     .values()
-    .filter(|chunk| chunk.id.is_none())
+    .filter(|chunk| chunk.id(&compilation.chunk_ids_artifact).is_none())
     .collect::<Vec<_>>();
-  let mut chunk_key_to_id = HashMap::with_capacity(chunks.len());
+  let mut chunk_key_to_id =
+    FxHashMap::with_capacity_and_hasher(chunks.len(), FxBuildHasher::default());
 
   assign_deterministic_ids(
     chunks,
     |chunk| get_full_chunk_name(chunk, chunk_graph, &module_graph, &context),
-    |a, b| compare_chunks_natural(chunk_graph, &module_graph, a, b),
+    |a, b| {
+      compare_chunks_natural(
+        chunk_graph,
+        &module_graph,
+        &compilation.module_ids_artifact,
+        a,
+        b,
+      )
+    },
     |chunk, id| {
       let size = used_ids.len();
       used_ids.insert(id.to_string());
@@ -55,7 +64,7 @@ fn chunk_ids(&self, compilation: &mut rspack_core::Compilation) -> rspack_error:
         return false;
       }
 
-      chunk_key_to_id.insert(chunk.ukey, id);
+      chunk_key_to_id.insert(chunk.ukey(), id);
       true
     },
     &[usize::pow(10, max_length)],
@@ -66,8 +75,7 @@ fn chunk_ids(&self, compilation: &mut rspack_core::Compilation) -> rspack_error:
 
   chunk_key_to_id.into_iter().for_each(|(chunk_ukey, id)| {
     let chunk = compilation.chunk_by_ukey.expect_get_mut(&chunk_ukey);
-    chunk.id = Some(id.to_string());
-    chunk.ids = vec![id.to_string()];
+    chunk.set_id(&mut compilation.chunk_ids_artifact, id.to_string());
   });
 
   Ok(())

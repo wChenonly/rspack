@@ -4,7 +4,7 @@ edition     = "2021"
 license     = "MIT"
 name        = "rspack_core"
 repository  = "https://github.com/web-infra-dev/rspack"
-version     = "0.1.0"
+version     = "0.2.0"
 [dependencies]
 anymap = { workspace = true }
 async-recursion = { workspace = true }
@@ -12,9 +12,9 @@ async-trait = { workspace = true }
 bitflags = { workspace = true }
 cow-utils = { workspace = true }
 dashmap = { workspace = true, features = ["rayon"] }
-derivative = { workspace = true }
+derive_more = { workspace = true, features = ["debug"] }
 dyn-clone = "1.0.17"
-either = "1"
+either = { workspace = true }
 futures = { workspace = true }
 hashlink = { workspace = true }
 hex = { workspace = true }
@@ -23,25 +23,28 @@ indoc = { workspace = true }
 itertools = { workspace = true }
 json = { workspace = true }
 mime_guess = { workspace = true }
-num-bigint = "0.4.4"
+num-bigint = "0.4.6"
 once_cell = { workspace = true }
 paste = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
-rspack_ast = { version = "0.1.0", path = "../rspack_ast" }
-rspack_collections = { version = "0.1.0", path = "../rspack_collections" }
-rspack_error = { version = "0.1.0", path = "../rspack_error" }
-rspack_fs = { version = "0.1.0", path = "../rspack_fs" }
-rspack_futures = { version = "0.1.0", path = "../rspack_futures" }
-rspack_hash = { version = "0.1.0", path = "../rspack_hash" }
-rspack_hook = { version = "0.1.0", path = "../rspack_hook" }
-rspack_loader_runner = { version = "0.1.0", path = "../rspack_loader_runner" }
-rspack_macros = { version = "0.1.0", path = "../rspack_macros" }
-rspack_paths = { version = "0.1.0", path = "../rspack_paths" }
-rspack_regex = { version = "0.1.0", path = "../rspack_regex" }
+ropey = { workspace = true }
+rspack_ast = { workspace = true }
+rspack_cacheable = { workspace = true }
+rspack_collections = { workspace = true }
+rspack_error = { workspace = true }
+rspack_fs = { workspace = true }
+rspack_futures = { workspace = true }
+rspack_hash = { workspace = true }
+rspack_hook = { workspace = true }
+rspack_loader_runner = { workspace = true }
+rspack_macros = { workspace = true }
+rspack_paths = { workspace = true }
+rspack_regex = { workspace = true }
 rspack_resolver = { workspace = true }
 rspack_sources = { workspace = true }
-rspack_util = { version = "0.1.0", path = "../rspack_util" }
+rspack_storage = { workspace = true }
+rspack_util = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -69,7 +72,7 @@ url = { workspace = true }
 ustr = { workspace = true }
 
 [dev-dependencies]
-pretty_assertions = { version = "1.4.0" }
+pretty_assertions = { version = "1.4.1" }
 
 [lints]
 workspace = true

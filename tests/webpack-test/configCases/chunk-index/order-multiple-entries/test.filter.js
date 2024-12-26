@@ -1,4 +1,4 @@
 // enable when support compilation.moduleGraph(unimplemented).getPreOrderIndex(unimplemented)
 module.exports = () => {
-	return false;
+	return 'https://github.com/web-infra-dev/rspack/issues/8548';
 };

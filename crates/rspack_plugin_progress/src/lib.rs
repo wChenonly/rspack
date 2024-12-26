@@ -1,16 +1,16 @@
 use std::cmp::Ordering;
 use std::sync::atomic::Ordering::Relaxed;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{cmp, sync::atomic::AtomicU32, time::Instant};
 
 use async_trait::async_trait;
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use rspack_collections::IdentifierMap;
 use rspack_core::{
   ApplyContext, BoxModule, Compilation, CompilationAfterOptimizeModules,
   CompilationAfterProcessAssets, CompilationBuildModule, CompilationChunkIds,
-  CompilationFinishModules, CompilationModuleIds, CompilationOptimizeChunkModules,
+  CompilationFinishModules, CompilationId, CompilationModuleIds, CompilationOptimizeChunkModules,
   CompilationOptimizeChunks, CompilationOptimizeDependencies, CompilationOptimizeModules,
   CompilationOptimizeTree, CompilationParams, CompilationProcessAssets, CompilationSeal,
   CompilationSucceedModule, CompilerAfterEmit, CompilerCompilation, CompilerEmit,
@@ -41,6 +41,7 @@ impl std::fmt::Debug for ProgressPluginOptions {
   }
 }
 
+static MULTI_PROGRESS: LazyLock<MultiProgress> = LazyLock::new(MultiProgress::new);
 #[derive(Debug, Default)]
 pub struct ProgressPluginDisplayOptions {
   // the prefix name of progress bar
@@ -101,7 +102,7 @@ impl ProgressPlugin {
         Some(progress_bar)
       }
     };
-
+    let progress_bar = progress_bar.map(|x| MULTI_PROGRESS.add(x));
     Self::new_inner(
       options,
       progress_bar,
@@ -281,6 +282,14 @@ async fn this_compilation(
   _compilation: &mut Compilation,
   _params: &mut CompilationParams,
 ) -> Result<()> {
+  if let ProgressPluginOptions::Default(options) = &self.options {
+    let progress_bar = self.progress_bar.as_ref().unwrap_or_else(|| unreachable!());
+    if !options.profile {
+      progress_bar.reset();
+      progress_bar.set_prefix(options.prefix.clone());
+    }
+  }
+
   self.handler(
     0.08,
     "setup".to_string(),
@@ -305,14 +314,6 @@ async fn compilation(
 
 #[plugin_hook(CompilerMake for ProgressPlugin)]
 async fn make(&self, _compilation: &mut Compilation) -> Result<()> {
-  if let ProgressPluginOptions::Default(options) = &self.options {
-    let progress_bar = self.progress_bar.as_ref().unwrap_or_else(|| unreachable!());
-    if !options.profile {
-      progress_bar.reset();
-      progress_bar.set_prefix(options.prefix.clone());
-    }
-  }
-
   self.handler(0.1, String::from("make"), vec![], None)?;
   self.modules_count.store(0, Relaxed);
   self.modules_done.store(0, Relaxed);
@@ -320,7 +321,7 @@ async fn make(&self, _compilation: &mut Compilation) -> Result<()> {
 }
 
 #[plugin_hook(CompilationBuildModule for ProgressPlugin)]
-async fn build_module(&self, module: &mut BoxModule) -> Result<()> {
+async fn build_module(&self, _compilation_id: CompilationId, module: &mut BoxModule) -> Result<()> {
   self
     .active_modules
     .write()
@@ -342,7 +343,11 @@ async fn build_module(&self, module: &mut BoxModule) -> Result<()> {
 }
 
 #[plugin_hook(CompilationSucceedModule for ProgressPlugin)]
-async fn succeed_module(&self, module: &mut BoxModule) -> Result<()> {
+async fn succeed_module(
+  &self,
+  _compilation_id: CompilationId,
+  module: &mut BoxModule,
+) -> Result<()> {
   self.modules_done.fetch_add(1, Relaxed);
   self
     .last_active_module
@@ -389,6 +394,11 @@ async fn finish_make(&self, _compilation: &mut Compilation) -> Result<()> {
   )
 }
 
+#[plugin_hook(CompilationFinishModules for ProgressPlugin)]
+async fn finish_modules(&self, _compilation: &mut Compilation) -> Result<()> {
+  self.sealing_hooks_report("finish modules", 0)
+}
+
 #[plugin_hook(CompilationSeal for ProgressPlugin)]
 async fn seal(&self, _compilation: &mut Compilation) -> Result<()> {
   self.sealing_hooks_report("plugins", 1)
@@ -398,11 +408,6 @@ async fn seal(&self, _compilation: &mut Compilation) -> Result<()> {
 fn optimize_dependencies(&self, _compilation: &mut Compilation) -> Result<Option<bool>> {
   self.sealing_hooks_report("dependencies", 2)?;
   Ok(None)
-}
-
-#[plugin_hook(CompilationFinishModules for ProgressPlugin)]
-async fn finish_modules(&self, _compilation: &mut Compilation) -> Result<()> {
-  self.sealing_hooks_report("finish modules", 0)
 }
 
 #[plugin_hook(CompilationOptimizeModules for ProgressPlugin)]

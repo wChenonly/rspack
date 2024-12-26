@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_collections::{Identifiable, Identifier};
 use rspack_core::{
   basic_function, block_promise, impl_module_meta_info, impl_source_map_config, module_raw,
   module_update_hash, returning_function,
-  rspack_sources::{RawSource, Source, SourceExt},
+  rspack_sources::{RawStringSource, Source, SourceExt},
   throw_missing_module_error_block, AsyncDependenciesBlock, AsyncDependenciesBlockIdentifier,
   BoxDependency, BuildContext, BuildInfo, BuildMeta, BuildMetaExportsType, BuildResult,
   ChunkGroupOptions, CodeGenerationResult, Compilation, ConcatenationScope, Context,
@@ -23,6 +24,7 @@ use super::{
 use crate::utils::json_stringify;
 
 #[impl_source_map_config]
+#[cacheable]
 #[derive(Debug)]
 pub struct ContainerEntryModule {
   blocks: Vec<AsyncDependenciesBlockIdentifier>,
@@ -84,16 +86,21 @@ impl DependenciesBlock for ContainerEntryModule {
     self.dependencies.push(dependency)
   }
 
+  fn remove_dependency_id(&mut self, dependency: DependencyId) {
+    self.dependencies.retain(|d| d != &dependency)
+  }
+
   fn get_dependencies(&self) -> &[DependencyId] {
     &self.dependencies
   }
 }
 
+#[cacheable_dyn]
 #[async_trait]
 impl Module for ContainerEntryModule {
   impl_module_meta_info!();
 
-  fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+  fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
     42.0
   }
 
@@ -121,7 +128,7 @@ impl Module for ContainerEntryModule {
   }
   async fn build(
     &mut self,
-    _build_context: BuildContext<'_>,
+    _build_context: BuildContext,
     _: Option<&Compilation>,
   ) -> Result<BuildResult> {
     let mut blocks = vec![];
@@ -256,8 +263,8 @@ var init = function(shareScope, initScope) {{
       )
     };
     code_generation_result =
-      code_generation_result.with_javascript(RawSource::from(source).boxed());
-    code_generation_result.add(SourceType::Expose, RawSource::from("").boxed());
+      code_generation_result.with_javascript(RawStringSource::from(source).boxed());
+    code_generation_result.add(SourceType::Expose, RawStringSource::from_static("").boxed());
     if self.enhanced {
       code_generation_result
         .data

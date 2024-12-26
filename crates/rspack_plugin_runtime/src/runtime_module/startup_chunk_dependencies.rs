@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   ChunkUkey, Compilation, RuntimeGlobals, RuntimeModule,
 };
 
@@ -44,7 +44,7 @@ impl RuntimeModule for StartupChunkDependenciesRuntimeModule {
           compilation
             .chunk_by_ukey
             .expect_get(&chunk_ukey)
-            .expect_id()
+            .expect_id(&compilation.chunk_ids_artifact)
             .to_string()
         })
         .collect::<Vec<_>>();
@@ -79,7 +79,7 @@ impl RuntimeModule for StartupChunkDependenciesRuntimeModule {
       };
 
       Ok(
-        RawSource::from(format!(
+        RawStringSource::from(format!(
           r#"var next = {};
         {} = function() {{
           {}

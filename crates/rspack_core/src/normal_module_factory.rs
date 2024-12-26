@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 use std::{borrow::Cow, sync::Arc};
 
 use regex::Regex;
+use rspack_cacheable::cacheable;
 use rspack_error::{error, Result};
 use rspack_hook::define_hook;
 use rspack_loader_runner::{get_scheme, Loader, Scheme};
@@ -13,10 +14,10 @@ use swc_core::common::Span;
 use crate::{
   diagnostics::EmptyDependency, module_rules_matcher, parse_resource, resolve,
   stringify_loaders_and_resource, BoxLoader, BoxModule, CompilerOptions, Context, Dependency,
-  DependencyCategory, FuncUseCtx, GeneratorOptions, ModuleExt, ModuleFactory,
+  DependencyCategory, DependencyRange, FuncUseCtx, GeneratorOptions, ModuleExt, ModuleFactory,
   ModuleFactoryCreateData, ModuleFactoryResult, ModuleIdentifier, ModuleLayer, ModuleRuleEffect,
   ModuleRuleEnforce, ModuleRuleUse, ModuleRuleUseLoader, ModuleType, NormalModule,
-  ParserAndGenerator, ParserOptions, RawModule, RealDependencyLocation, Resolve, ResolveArgs,
+  ParserAndGenerator, ParserOptions, RawModule, Resolve, ResolveArgs,
   ResolveOptionsWithDependencyType, ResolveResult, Resolver, ResolverFactory, ResourceData,
   ResourceParsedData, RunnerContext, SharedPluginDriver,
 };
@@ -231,9 +232,7 @@ impl NormalModuleFactory {
 
         if first_char.is_none() {
           let span = dependency.source_span().unwrap_or_default();
-          return Err(
-            EmptyDependency::new(RealDependencyLocation::new(span.start, span.end)).into(),
-          );
+          return Err(EmptyDependency::new(DependencyRange::new(span.start, span.end)).into());
         }
 
         // See: https://webpack.js.org/concepts/loaders/#inline
@@ -331,7 +330,7 @@ impl NormalModuleFactory {
           span: dependency_source_span,
           // take the options is safe here, because it
           // is not used in after_resolve hooks
-          resolve_options: data.resolve_options.take(),
+          resolve_options: data.resolve_options.clone(),
           resolve_to_context: false,
           optional: dependency_optional,
           file_dependencies: &mut file_dependencies,
@@ -643,7 +642,7 @@ impl NormalModuleFactory {
     Ok(rules)
   }
 
-  fn calculate_resolve_options(&self, module_rules: &[&ModuleRuleEffect]) -> Option<Box<Resolve>> {
+  fn calculate_resolve_options(&self, module_rules: &[&ModuleRuleEffect]) -> Option<Arc<Resolve>> {
     let mut resolved: Option<Resolve> = None;
     for rule in module_rules {
       if let Some(rule_resolve) = &rule.resolve {
@@ -654,7 +653,7 @@ impl NormalModuleFactory {
         }
       }
     }
-    resolved.map(Box::new)
+    resolved.map(Arc::new)
   }
 
   fn calculate_side_effects(&self, module_rules: &[&ModuleRuleEffect]) -> Option<bool> {
@@ -847,6 +846,7 @@ impl NormalModuleFactory {
 /// `u32` is 4 bytes on 64bit machine, comparing to `usize` which is 8 bytes.
 /// ## Warning
 /// [ErrorSpan] start from zero, and `Span` of `swc` start from one. see https://swc-css.netlify.app/?code=eJzLzC3ILypRSFRIK8rPVVAvSS0u0csqVgcAZaoIKg
+#[cacheable]
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, Default, PartialOrd, Ord)]
 pub struct ErrorSpan {
   pub start: u32,

@@ -1,7 +1,7 @@
 use rspack_collections::Identifier;
 use rspack_core::{
   impl_runtime_module,
-  rspack_sources::{BoxSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, RawStringSource, SourceExt},
   Compilation, RuntimeGlobals, RuntimeModule,
 };
 
@@ -24,7 +24,7 @@ impl RuntimeModule for CreateScriptUrlRuntimeModule {
 
   fn generate(&self, compilation: &Compilation) -> rspack_error::Result<BoxSource> {
     Ok(
-      RawSource::from(format!(
+      RawStringSource::from(format!(
         r#"
     {} = function(url){{
       return {};
@@ -37,7 +37,7 @@ impl RuntimeModule for CreateScriptUrlRuntimeModule {
             RuntimeGlobals::GET_TRUSTED_TYPES_POLICY
           )
         } else {
-          "'{url}'".to_string()
+          "url".to_string()
         }
       ))
       .boxed(),

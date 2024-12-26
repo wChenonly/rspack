@@ -1,24 +1,26 @@
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::{
   module_raw, AsModuleDependency, Compilation, ContextDependency, ContextOptions, Dependency,
-  DependencyCategory, DependencyId, DependencyTemplate, DependencyType, ModuleGraph,
-  RealDependencyLocation, RuntimeSpec, TemplateContext, TemplateReplaceSource,
+  DependencyCategory, DependencyId, DependencyRange, DependencyTemplate, DependencyType,
+  ModuleGraph, RuntimeSpec, TemplateContext, TemplateReplaceSource,
 };
 use rspack_error::Diagnostic;
 
 use super::create_resource_identifier_for_context_dependency;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct RequireContextDependency {
   id: DependencyId,
   options: ContextOptions,
-  range: RealDependencyLocation,
+  range: DependencyRange,
   resource_identifier: String,
   optional: bool,
   critical: Option<Diagnostic>,
 }
 
 impl RequireContextDependency {
-  pub fn new(options: ContextOptions, range: RealDependencyLocation, optional: bool) -> Self {
+  pub fn new(options: ContextOptions, range: DependencyRange, optional: bool) -> Self {
     let resource_identifier = create_resource_identifier_for_context_dependency(None, &options);
     Self {
       options,
@@ -31,6 +33,7 @@ impl RequireContextDependency {
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for RequireContextDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -44,7 +47,7 @@ impl Dependency for RequireContextDependency {
     &DependencyType::RequireContext
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -98,6 +101,7 @@ impl ContextDependency for RequireContextDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for RequireContextDependency {
   fn apply(
     &self,

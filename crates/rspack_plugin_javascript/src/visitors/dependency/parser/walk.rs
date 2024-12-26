@@ -30,7 +30,7 @@ fn warp_ident_to_pat(ident: Ident) -> Pat {
   Pat::Ident(ident.into())
 }
 
-impl<'parser> JavascriptParser<'parser> {
+impl JavascriptParser<'_> {
   fn in_block_scope<F>(&mut self, f: F)
   where
     F: FnOnce(&mut Self),
@@ -78,7 +78,7 @@ impl<'parser> JavascriptParser<'parser> {
     self.in_tagged_template_tag = old_in_tagged_template_tag;
   }
 
-  fn in_function_scope<'a, I, F>(&mut self, has_this: bool, params: I, f: F)
+  pub(crate) fn in_function_scope<'a, I, F>(&mut self, has_this: bool, params: I, f: F)
   where
     F: FnOnce(&mut Self),
     I: Iterator<Item = Cow<'a, Pat>>,
@@ -151,7 +151,7 @@ impl<'parser> JavascriptParser<'parser> {
     }
   }
 
-  fn walk_statement(&mut self, statement: Statement) {
+  pub(crate) fn walk_statement(&mut self, statement: Statement) {
     self.enter_statement(
       &statement,
       |parser, _| {

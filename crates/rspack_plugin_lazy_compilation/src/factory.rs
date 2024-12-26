@@ -33,6 +33,7 @@ impl ModuleFactory for LazyCompilationDependencyFactory {
     let dep = dep.clone();
 
     let mut create_data = ModuleFactoryCreateData {
+      compilation_id: data.compilation_id,
       resolve_options: proxy_data.resolve_options.clone(),
       options: data.options.clone(),
       context: proxy_data.context.clone(),
@@ -40,6 +41,7 @@ impl ModuleFactory for LazyCompilationDependencyFactory {
       issuer: proxy_data.issuer.clone(),
       issuer_layer: proxy_data.issuer_layer.clone(),
       issuer_identifier: proxy_data.issuer_identifier,
+      resolver_factory: proxy_data.resolver_factory.clone(),
       file_dependencies: proxy_data.file_dependencies.clone(),
       context_dependencies: proxy_data.context_dependencies.clone(),
       missing_dependencies: proxy_data.missing_dependencies.clone(),

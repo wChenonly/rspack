@@ -3,56 +3,18 @@
 use std::fmt::{self, Debug};
 use std::sync::LazyLock;
 
-use async_recursion::async_recursion;
 use cow_utils::CowUtils;
 use futures::future::BoxFuture;
 use regex::Regex;
 use rspack_core::{
-  rspack_sources::{BoxSource, ConcatSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, ConcatSource, RawStringSource, SourceExt},
   to_comment, Chunk, Compilation, CompilationProcessAssets, FilenameTemplate, Logger, PathData,
   Plugin,
 };
 use rspack_error::Result;
 use rspack_hook::{plugin, plugin_hook};
-use rspack_regex::RspackRegex;
-use rspack_util::{infallible::ResultInfallibleExt as _, try_any_sync};
-
-#[derive(Debug)]
-pub enum BannerRule {
-  String(String),
-  Regexp(RspackRegex),
-}
-
-#[derive(Debug)]
-pub enum BannerRules {
-  Single(BannerRule),
-  Array(Vec<BannerRule>),
-}
-
-impl FromIterator<BannerRule> for BannerRules {
-  fn from_iter<T: IntoIterator<Item = BannerRule>>(iter: T) -> Self {
-    Self::Array(iter.into_iter().collect())
-  }
-}
-
-impl BannerRule {
-  pub fn try_match(&self, data: &str) -> Result<bool> {
-    match self {
-      Self::String(s) => Ok(data.starts_with(s)),
-      Self::Regexp(r) => Ok(r.test(data)),
-    }
-  }
-}
-
-impl BannerRules {
-  #[async_recursion]
-  pub async fn try_match(&self, data: &str) -> Result<bool> {
-    match self {
-      Self::Single(s) => s.try_match(data),
-      Self::Array(l) => try_any_sync(l, |i| i.try_match(data)),
-    }
-  }
-}
+use rspack_util::asset_condition::AssetConditions;
+use rspack_util::infallible::ResultInfallibleExt as _;
 
 #[derive(Debug)]
 pub struct BannerPluginOptions {
@@ -65,11 +27,11 @@ pub struct BannerPluginOptions {
   // If true, banner will not be wrapped in a comment.
   pub raw: Option<bool>,
   // Include all modules that pass test assertion.
-  pub test: Option<BannerRules>,
+  pub test: Option<AssetConditions>,
   // Include all modules matching any of these conditions.
-  pub include: Option<BannerRules>,
+  pub include: Option<AssetConditions>,
   // Exclude all modules matching any of these conditions.
-  pub exclude: Option<BannerRules>,
+  pub exclude: Option<AssetConditions>,
   // Specifies the stage of banner.
   pub stage: Option<i32>,
 }
@@ -78,6 +40,7 @@ pub struct BannerContentFnCtx<'a> {
   pub hash: &'a str,
   pub chunk: &'a Chunk,
   pub filename: &'a str,
+  pub compilation: &'a Compilation,
 }
 
 pub type BannerContentFn =
@@ -97,24 +60,23 @@ impl fmt::Debug for BannerContent {
   }
 }
 
-#[async_recursion]
-async fn match_object(obj: &BannerPluginOptions, str: &str) -> Result<bool> {
+fn match_object(obj: &BannerPluginOptions, str: &str) -> bool {
   if let Some(condition) = &obj.test {
-    if !condition.try_match(str).await? {
-      return Ok(false);
+    if !condition.try_match(str) {
+      return false;
     }
   }
   if let Some(condition) = &obj.include {
-    if !condition.try_match(str).await? {
-      return Ok(false);
+    if !condition.try_match(str) {
+      return false;
     }
   }
   if let Some(condition) = &obj.exclude {
-    if condition.try_match(str).await? {
-      return Ok(false);
+    if condition.try_match(str) {
+      return false;
     }
   }
-  Ok(true)
+  true
 }
 
 static TRIALING_WHITESPACE: LazyLock<Regex> =
@@ -163,14 +125,14 @@ impl BannerPlugin {
     {
       ConcatSource::new([
         old_source,
-        RawSource::from("\n").boxed(),
-        RawSource::from(comment).boxed(),
+        RawStringSource::from_static("\n").boxed(),
+        RawStringSource::from(comment).boxed(),
       ])
       .boxed()
     } else {
       ConcatSource::new([
-        RawSource::from(comment).boxed(),
-        RawSource::from("\n").boxed(),
+        RawStringSource::from(comment).boxed(),
+        RawStringSource::from_static("\n").boxed(),
         old_source,
       ])
       .boxed()
@@ -195,8 +157,8 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
       continue;
     }
 
-    for file in &chunk.files {
-      let is_match = match_object(&self.config, file).await.unwrap_or(false);
+    for file in chunk.files() {
+      let is_match = match_object(&self.config, file);
 
       if !is_match {
         continue;
@@ -216,6 +178,7 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
             hash: &hash,
             chunk,
             filename: file,
+            compilation,
           })
           .await?;
           self.wrap_comment(&res)
@@ -224,7 +187,19 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
       let comment = compilation
         .get_path(
           &FilenameTemplate::from(banner),
-          PathData::default().chunk(chunk).hash(&hash).filename(file),
+          PathData::default()
+            .chunk_hash_optional(chunk.rendered_hash(
+              &compilation.chunk_hashes_artifact,
+              compilation.options.output.hash_digest_length,
+            ))
+            .chunk_id_optional(
+              chunk
+                .id(&compilation.chunk_ids_artifact)
+                .map(|id| id.as_str()),
+            )
+            .chunk_name_optional(chunk.name_for_filename_template(&compilation.chunk_ids_artifact))
+            .hash(&hash)
+            .filename(file),
         )
         .always_ok();
       updates.push((file.clone(), comment));

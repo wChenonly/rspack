@@ -57,7 +57,7 @@ export type HtmlRspackPluginOptions = {
 	 * The file to write the HTML to. You can specify a subdirectory here too (eg: pages/index.html).
 	 * @default 'index.html'
 	 */
-	filename?: string;
+	filename?: string | ((entry: string) => string);
 
 	/** The template file path. */
 	template?: string;
@@ -102,6 +102,9 @@ export type HtmlRspackPluginOptions = {
 	/** Allows you to skip some chunks. */
 	excludeChunks?: string[];
 
+	/** Allows to control how chunks should be sorted before they are included to the HTML. */
+	chunksSortMode?: "auto" | "manual";
+
 	/** The sri hash algorithm, disabled by default. */
 	sri?: "sha256" | "sha384" | "sha512";
 
@@ -125,8 +128,13 @@ export type HtmlRspackPluginOptions = {
 	hash?: boolean;
 };
 
+const templateFilenameFunction = z
+	.function()
+	.args(z.string())
+	.returns(z.string());
+
 const htmlRspackPluginOptions = z.strictObject({
-	filename: z.string().optional(),
+	filename: z.string().or(templateFilenameFunction).optional(),
 	template: z
 		.string()
 		.refine(
@@ -159,6 +167,7 @@ const htmlRspackPluginOptions = z.strictObject({
 		.optional(),
 	chunks: z.string().array().optional(),
 	excludeChunks: z.string().array().optional(),
+	chunksSortMode: z.enum(["auto", "manual"]).optional(),
 	sri: z.enum(["sha256", "sha384", "sha512"]).optional(),
 	minify: z.boolean().optional(),
 	title: z.string().optional(),
@@ -200,6 +209,7 @@ const HtmlRspackPluginImpl = create(
 					? "false"
 					: configInject;
 		const base = typeof c.base === "string" ? { href: c.base } : c.base;
+		const chunksSortMode = c.chunksSortMode ?? "auto";
 
 		let compilation: Compilation | null = null;
 		this.hooks.compilation.tap("HtmlRspackPlugin", compilationInstance => {
@@ -303,8 +313,37 @@ const HtmlRspackPluginImpl = create(
 			templateParameters = rawTemplateParameters;
 		}
 
+		let filenames: Set<string> | undefined = undefined;
+		if (typeof c.filename === "string") {
+			filenames = new Set();
+			if (c.filename.includes("[name]")) {
+				if (typeof this.options.entry === "object") {
+					for (const entryName of Object.keys(this.options.entry)) {
+						filenames.add(c.filename.replace(/\[name\]/g, entryName));
+					}
+				} else {
+					throw new Error(
+						"HtmlRspackPlugin: filename with `[name]` does not support function entry"
+					);
+				}
+			} else {
+				filenames.add(c.filename);
+			}
+		} else if (typeof c.filename === "function") {
+			filenames = new Set();
+			if (typeof this.options.entry === "object") {
+				for (const entryName of Object.keys(this.options.entry)) {
+					filenames.add(c.filename(entryName));
+				}
+			} else {
+				throw new Error(
+					"HtmlRspackPlugin: function filename does not support function entry"
+				);
+			}
+		}
+
 		return {
-			filename: c.filename,
+			filename: filenames ? Array.from(filenames) : undefined,
 			template: c.template,
 			hash: c.hash,
 			title: c.title,
@@ -312,6 +351,7 @@ const HtmlRspackPluginImpl = create(
 			publicPath: c.publicPath,
 			chunks: c.chunks,
 			excludeChunks: c.excludeChunks,
+			chunksSortMode,
 			sri: c.sri,
 			minify: c.minify,
 			meta,
@@ -378,6 +418,10 @@ const compilationOptionsMap: WeakMap<Compilation, HtmlRspackPluginOptions> =
 	new WeakMap();
 
 const HtmlRspackPlugin = HtmlRspackPluginImpl as typeof HtmlRspackPluginImpl & {
+	/**
+	 * @deprecated Use `getCompilationHooks` instead.
+	 */
+	getHooks: (compilation: Compilation) => HtmlRspackPluginHooks;
 	getCompilationHooks: (compilation: Compilation) => HtmlRspackPluginHooks;
 	getCompilationOptions: (
 		compilation: Compilation
@@ -387,6 +431,7 @@ const HtmlRspackPlugin = HtmlRspackPluginImpl as typeof HtmlRspackPluginImpl & {
 		attributes?: Record<string, string | boolean>,
 		innerHTML?: string | undefined
 	) => JsHtmlPluginTag;
+	version: number;
 };
 
 const voidTags = [
@@ -429,7 +474,9 @@ HtmlRspackPlugin.getCompilationOptions = (compilation: Compilation) => {
 	return compilationOptionsMap.get(compilation);
 };
 
-HtmlRspackPlugin.getCompilationHooks = (compilation: Compilation) => {
+HtmlRspackPlugin.getHooks = HtmlRspackPlugin.getCompilationHooks = (
+	compilation: Compilation
+) => {
 	if (!(compilation instanceof Compilation)) {
 		throw new TypeError(
 			"The 'compilation' argument must be an instance of Compilation"
@@ -453,5 +500,7 @@ HtmlRspackPlugin.getCompilationHooks = (compilation: Compilation) => {
 	}
 	return hooks;
 };
+
+HtmlRspackPlugin.version = 5;
 
 export { HtmlRspackPlugin };

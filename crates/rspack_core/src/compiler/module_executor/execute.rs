@@ -1,12 +1,11 @@
-use std::path::PathBuf;
 use std::{iter::once, sync::atomic::AtomicU32};
 
 use itertools::Itertools;
-use rspack_collections::{Identifier, IdentifierSet};
-use rspack_error::Result;
+use rspack_collections::{DatabaseItem, Identifier, IdentifierSet, UkeySet};
+use rspack_paths::ArcPath;
 use rustc_hash::FxHashMap as HashMap;
 use rustc_hash::FxHashSet as HashSet;
-use tokio::{runtime::Handle, sync::oneshot::Sender};
+use tokio::sync::oneshot::Sender;
 
 use crate::{
   compiler::make::repair::MakeTaskContext,
@@ -31,11 +30,12 @@ pub type ExecuteModuleId = u32;
 
 #[derive(Debug, Default)]
 pub struct ExecuteModuleResult {
+  pub error: Option<String>,
   pub cacheable: bool,
-  pub file_dependencies: HashSet<PathBuf>,
-  pub context_dependencies: HashSet<PathBuf>,
-  pub missing_dependencies: HashSet<PathBuf>,
-  pub build_dependencies: HashSet<PathBuf>,
+  pub file_dependencies: HashSet<ArcPath>,
+  pub context_dependencies: HashSet<ArcPath>,
+  pub missing_dependencies: HashSet<ArcPath>,
+  pub build_dependencies: HashSet<ArcPath>,
   pub code_generated_modules: IdentifierSet,
   pub assets: HashSet<String>,
   pub id: ExecuteModuleId,
@@ -48,19 +48,19 @@ pub struct ExecuteTask {
   pub public_path: Option<PublicPath>,
   pub base_uri: Option<String>,
   pub result_sender: Sender<(
-    Result<ExecuteModuleResult>,
+    ExecuteModuleResult,
     CompilationAssets,
     IdentifierSet,
     Vec<ExecutedRuntimeModule>,
   )>,
 }
-
+#[async_trait::async_trait]
 impl Task<MakeTaskContext> for ExecuteTask {
   fn get_task_type(&self) -> TaskType {
     TaskType::Sync
   }
 
-  fn sync_run(self: Box<Self>, context: &mut MakeTaskContext) -> TaskResult<MakeTaskContext> {
+  async fn main_run(self: Box<Self>, context: &mut MakeTaskContext) -> TaskResult<MakeTaskContext> {
     let Self {
       entry_dep_id,
       layer,
@@ -76,6 +76,7 @@ impl Task<MakeTaskContext> for ExecuteTask {
     let id = EXECUTE_MODULE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let mg = compilation.get_module_graph_mut();
+    // TODO remove expect and return Err
     let entry_module_identifier = mg
       .get_module_by_dependency_id(&entry_dep_id)
       .expect("should have module")
@@ -93,17 +94,18 @@ impl Task<MakeTaskContext> for ExecuteTask {
       }
     }
 
-    tracing::info!("modules: {:?}", &modules.iter().collect::<Vec<_>>());
+    tracing::info!("modules: {:?}", &modules);
 
     let mut chunk_graph = ChunkGraph::default();
 
     let mut chunk = Chunk::new(Some("build time chunk".into()), ChunkKind::Normal);
 
-    chunk.id = chunk.name.clone();
-    chunk.ids = vec![chunk.id.clone().expect("id is set")];
+    if let Some(name) = chunk.name() {
+      chunk.set_id(&mut compilation.chunk_ids_artifact, name);
+    }
     let runtime: RuntimeSpec = once("build time".into()).collect();
 
-    chunk.runtime = runtime.clone();
+    chunk.set_runtime(runtime.clone());
 
     let mut entrypoint = Entrypoint::new(crate::ChunkGroupKind::Entrypoint {
       initial: true,
@@ -123,31 +125,24 @@ impl Task<MakeTaskContext> for ExecuteTask {
 
     // add chunk to this compilation
     let chunk = compilation.chunk_by_ukey.add(chunk);
-    let chunk_ukey = chunk.ukey;
+    let chunk_ukey = chunk.ukey();
 
     chunk_graph.connect_chunk_and_entry_module(
-      chunk.ukey,
+      chunk.ukey(),
       entry_module_identifier,
       entrypoint.ukey,
     );
     entrypoint.connect_chunk(chunk);
-    entrypoint.set_runtime_chunk(chunk.ukey);
-    entrypoint.set_entry_point_chunk(chunk.ukey);
+    entrypoint.set_runtime_chunk(chunk.ukey());
+    entrypoint.set_entry_point_chunk(chunk.ukey());
 
     compilation.chunk_group_by_ukey.add(entrypoint);
 
     // Assign ids to modules and modules to the chunk
-    let module_graph = compilation.get_module_graph();
-    for m in &modules {
-      let module = module_graph
-        .module_by_identifier(m)
-        .expect("should have module");
-
-      let id = module.identifier();
-
-      chunk_graph.add_module(id);
-      chunk_graph.set_module_id(*m, id.to_string());
-      chunk_graph.connect_chunk_and_module(chunk_ukey, *m);
+    for &m in &modules {
+      chunk_graph.add_module(m);
+      ChunkGraph::set_module_id(&mut compilation.module_ids_artifact, m, m.as_str().into());
+      chunk_graph.connect_chunk_and_module(chunk_ukey, m);
     }
 
     // Webpack uses this trick to make sure process_runtime_requirements access
@@ -161,18 +156,16 @@ impl Task<MakeTaskContext> for ExecuteTask {
     compilation.create_module_hashes(modules.clone())?;
 
     compilation.code_generation_modules(&mut None, modules.clone())?;
-
-    Handle::current().block_on(async {
-      compilation
-        .process_runtime_requirements(
-          modules.clone(),
-          once(chunk_ukey),
-          once(chunk_ukey),
-          compilation.plugin_driver.clone(),
-        )
-        .await
-    })?;
-
+    compilation
+      .process_modules_runtime_requirements(modules.clone(), compilation.plugin_driver.clone())
+      .await?;
+    compilation
+      .process_chunks_runtime_requirements(
+        UkeySet::from_iter([chunk_ukey]),
+        UkeySet::from_iter([chunk_ukey]),
+        compilation.plugin_driver.clone(),
+      )
+      .await?;
     let runtime_modules = compilation
       .chunk_graph
       .get_chunk_runtime_modules_iterable(&chunk_ukey)
@@ -197,15 +190,12 @@ impl Task<MakeTaskContext> for ExecuteTask {
         runtime_module_source.size() as f64,
       );
       let result = CodeGenerationResult::default().with_javascript(runtime_module_source);
-      let result_id = result.id;
 
-      compilation
-        .code_generation_results
-        .module_generation_result_map
-        .insert(result.id, result);
-      compilation
-        .code_generation_results
-        .add(*runtime_id, runtime.clone(), result_id);
+      compilation.code_generation_results.insert(
+        *runtime_id,
+        result,
+        std::iter::once(runtime.clone()),
+      );
       compilation
         .code_generated_modules
         .insert(runtime_module.identifier());
@@ -223,39 +213,37 @@ impl Task<MakeTaskContext> for ExecuteTask {
       );
 
     let module_graph = compilation.get_module_graph();
-    let mut execute_result = match exports {
+    let mut execute_result = modules.iter().fold(
+      ExecuteModuleResult {
+        cacheable: true,
+        id,
+        ..Default::default()
+      },
+      |mut res, m| {
+        let module = module_graph.module_by_identifier(m).expect("unreachable");
+        let build_info = &module.build_info();
+        if let Some(info) = build_info {
+          res
+            .file_dependencies
+            .extend(info.file_dependencies.iter().cloned());
+          res
+            .context_dependencies
+            .extend(info.context_dependencies.iter().cloned());
+          res
+            .missing_dependencies
+            .extend(info.missing_dependencies.iter().cloned());
+          res
+            .build_dependencies
+            .extend(info.build_dependencies.iter().cloned());
+          if !info.cacheable {
+            res.cacheable = false;
+          }
+        }
+        res
+      },
+    );
+    match exports {
       Ok(_) => {
-        let mut result = modules.iter().fold(
-          ExecuteModuleResult {
-            cacheable: true,
-            ..Default::default()
-          },
-          |mut res, m| {
-            let module = module_graph.module_by_identifier(m).expect("unreachable");
-            let build_info = &module.build_info();
-            if let Some(info) = build_info {
-              res
-                .file_dependencies
-                .extend(info.file_dependencies.iter().cloned());
-              res
-                .context_dependencies
-                .extend(info.context_dependencies.iter().cloned());
-              res
-                .missing_dependencies
-                .extend(info.missing_dependencies.iter().cloned());
-              res
-                .build_dependencies
-                .extend(info.build_dependencies.iter().cloned());
-              if !info.cacheable {
-                res.cacheable = false;
-              }
-            }
-            res
-          },
-        );
-
-        result.id = id;
-
         for m in modules.iter() {
           let codegen_result = codegen_results.get(m, Some(&runtime));
 
@@ -270,18 +258,19 @@ impl Task<MakeTaskContext> for ExecuteTask {
             );
           }
         }
-
-        Ok(result)
       }
-      Err(e) => Err(e),
+      Err(e) => {
+        execute_result.cacheable = false;
+        execute_result.error = Some(e.to_string());
+      }
     };
 
     let assets = std::mem::take(compilation.assets_mut());
     let code_generated_modules = std::mem::take(&mut compilation.code_generated_modules);
     let module_assets = std::mem::take(&mut compilation.module_assets);
-    if let Ok(ref mut result) = execute_result {
-      result.assets = assets.keys().cloned().collect::<HashSet<_>>();
-      result.assets.extend(
+    if execute_result.error.is_none() {
+      execute_result.assets = assets.keys().cloned().collect::<HashSet<_>>();
+      execute_result.assets.extend(
         module_assets
           .values()
           .flat_map(|m| m.iter().map(|i| i.to_owned()).collect_vec())
@@ -301,7 +290,7 @@ impl Task<MakeTaskContext> for ExecuteTask {
           name: runtime_module.name().to_string(),
           name_for_condition: runtime_module.name_for_condition().map(|n| n.to_string()),
           module_type: *runtime_module.module_type(),
-          cacheable: runtime_module.cacheable(),
+          cacheable: !(runtime_module.full_hash() || runtime_module.dependent_hash()),
           size: runtime_module_size
             .get(&identifier)
             .map_or(0 as f64, |s| s.to_owned()),

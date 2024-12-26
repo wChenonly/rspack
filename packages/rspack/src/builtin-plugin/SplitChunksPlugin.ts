@@ -11,7 +11,7 @@ import {
 import { Chunk } from "../Chunk";
 import type { Compiler } from "../Compiler";
 import { Module } from "../Module";
-import type { OptimizationSplitChunksOptions } from "../config/zod";
+import type { OptimizationSplitChunksOptions } from "../config";
 import { JsSplitChunkSizes } from "../util/SplitChunkSize";
 import { RspackBuiltinPlugin, createBuiltinPlugin } from "./base";
 
@@ -80,13 +80,7 @@ function toRawSplitChunksOptions(
 
 	function getChunks(chunks: any) {
 		if (typeof chunks === "function") {
-			return (chunk: JsChunk) =>
-				chunks(
-					Chunk.__from_binding(
-						chunk,
-						compiler._lastCompilation!.__internal_getInner()
-					)
-				);
+			return (chunk: JsChunk) => chunks(Chunk.__from_binding(chunk));
 		}
 		return chunks;
 	}

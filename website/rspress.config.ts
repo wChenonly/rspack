@@ -8,7 +8,6 @@ import pluginSitemap from 'rspress-plugin-sitemap';
 import { defineConfig } from 'rspress/config';
 
 const PUBLISH_URL = 'https://rspack.dev';
-const COPYRIGHT = '© 2022-present ByteDance Inc. All Rights Reserved.';
 
 export default defineConfig({
   root: path.join(__dirname, 'docs'),
@@ -63,9 +62,6 @@ export default defineConfig({
     }),
   ],
   themeConfig: {
-    footer: {
-      message: COPYRIGHT,
-    },
     socialLinks: [
       {
         icon: 'github',
@@ -125,7 +121,7 @@ export default defineConfig({
         type: 'website',
         url: PUBLISH_URL,
         image:
-          'https://assets.rspack.dev/rspack/assets/rspack-og-image-v1-0.png',
+          'https://assets.rspack.dev/rspack/assets/rspack-og-image-v1-1.png',
         description: 'Fast Rust-based Web Bundler',
         twitter: {
           site: '@rspack_dev',

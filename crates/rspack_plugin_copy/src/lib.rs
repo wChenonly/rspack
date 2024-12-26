@@ -10,7 +10,7 @@ use std::{
 };
 
 use dashmap::DashSet;
-use derivative::Derivative;
+use derive_more::Debug;
 use futures::future::BoxFuture;
 use glob::{MatchOptions, Pattern as GlobPattern};
 use regex::Regex;
@@ -91,11 +91,10 @@ pub enum ToOption {
   Fn(ToFn),
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct CopyPattern {
   pub from: String,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   pub to: Option<ToOption>,
   pub context: Option<Utf8PathBuf>,
   pub to_type: Option<ToType>,
@@ -104,7 +103,7 @@ pub struct CopyPattern {
   pub force: bool,
   pub priority: i32,
   pub glob_options: CopyGlobOptions,
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   pub transform: Option<Transformer>,
 }
 
@@ -275,11 +274,10 @@ impl CopyRspackPlugin {
       }
       Err(e) => {
         let e: Error = DiagnosticError::from(e.boxed()).into();
-        let rspack_err: Vec<Diagnostic> = vec![e.into()];
         diagnostics
           .lock()
           .expect("failed to obtain lock of `diagnostics`")
-          .extend(rspack_err);
+          .push(e.into());
         return None;
       }
     };
@@ -423,7 +421,7 @@ impl CopyRspackPlugin {
         if dot_enable.is_none() {
           dot_enable = Some(true);
         }
-        let mut escaped = Utf8PathBuf::from(escape_glob_chars(abs_from.as_str()));
+        let mut escaped = Utf8PathBuf::from(GlobPattern::escape(abs_from.as_str()));
         escaped.push("**/*");
 
         escaped.as_str().to_string()
@@ -437,14 +435,21 @@ impl CopyRspackPlugin {
           dot_enable = Some(true);
         }
 
-        escape_glob_chars(abs_from.as_str())
+        GlobPattern::escape(abs_from.as_str())
       }
       FromType::Glob => {
         need_add_context_to_dependency = true;
-        if Path::new(orig_from).is_absolute() {
+        let glob_query = if Path::new(orig_from).is_absolute() {
           orig_from.into()
         } else {
           context.join(orig_from).as_str().to_string()
+        };
+        // A glob pattern ending with /** should match all files within a directory, not just the directory itself.
+        // Since the standard glob only matches directories, we append /* to align with webpack's behavior.
+        if glob_query.ends_with("/**") {
+          format!("{glob_query}/*")
+        } else {
+          glob_query
         }
       }
     };
@@ -610,10 +615,12 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
   logger.time_end(start);
 
   let start = logger.time("emit assets");
-  compilation.file_dependencies.extend(file_dependencies);
+  compilation
+    .file_dependencies
+    .extend(file_dependencies.into_iter().map(Into::into));
   compilation
     .context_dependencies
-    .extend(context_dependencies);
+    .extend(context_dependencies.into_iter().map(Into::into));
   compilation.extend_diagnostics(std::mem::take(
     diagnostics
       .lock()
@@ -631,9 +638,15 @@ async fn process_assets(&self, compilation: &mut Compilation) -> Result<()> {
       if let Some(info) = result.info {
         set_info(&mut exist_asset.info, info);
       }
-      // TODO set info { copied: true, sourceFilename }
+      exist_asset.info.source_filename = Some(result.source_filename.to_string());
+      exist_asset.info.copied = Some(true);
     } else {
-      let mut asset_info = Default::default();
+      let mut asset_info = AssetInfo {
+        source_filename: Some(result.source_filename.to_string()),
+        copied: Some(true),
+        ..Default::default()
+      };
+
       if let Some(info) = result.info {
         set_info(&mut asset_info, info);
       }
@@ -687,18 +700,6 @@ fn get_closest_common_parent_dir(paths: &[&Utf8Path]) -> Option<Utf8PathBuf> {
   Some(parent_dir)
 }
 
-fn escape_glob_chars(s: &str) -> String {
-  let mut escaped = String::with_capacity(s.len());
-  for c in s.chars() {
-    match c {
-      '*' | '?' | '[' | ']' => escaped.push('\\'),
-      _ => {}
-    }
-    escaped.push(c);
-  }
-  escaped
-}
-
 fn set_info(target: &mut AssetInfo, info: Info) {
   if let Some(minimized) = info.minimized {
     target.minimized.replace(minimized);
@@ -735,12 +736,6 @@ fn set_info(target: &mut AssetInfo, info: Info) {
   if let Some(version) = info.version {
     target.version = version;
   }
-}
-
-#[test]
-fn test_escape() {
-  assert_eq!(escape_glob_chars("a/b/**/*.js"), r#"a/b/\*\*/\*.js"#);
-  assert_eq!(escape_glob_chars("a/b/c"), r#"a/b/c"#);
 }
 
 // If this test fails, you should modify `set_info` function, according to your changes about AssetInfo

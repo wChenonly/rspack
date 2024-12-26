@@ -1,26 +1,33 @@
 use itertools::Itertools;
+use rspack_cacheable::{
+  cacheable, cacheable_dyn,
+  with::{AsPreset, AsVec},
+};
 use rspack_core::{
   module_raw, process_export_info, property_access, AsContextDependency, Compilation, Dependency,
-  DependencyCategory, DependencyId, DependencyTemplate, DependencyType, ExportInfoProvided,
-  ExportNameOrSpec, ExportSpec, ExportsOfExportsSpec, ExportsSpec, ExportsType,
+  DependencyCategory, DependencyId, DependencyRange, DependencyTemplate, DependencyType,
+  ExportInfoProvided, ExportNameOrSpec, ExportSpec, ExportsOfExportsSpec, ExportsSpec, ExportsType,
   ExtendedReferencedExport, ModuleDependency, ModuleGraph, ModuleIdentifier, Nullable,
-  RealDependencyLocation, ReferencedExport, RuntimeGlobals, RuntimeSpec, TemplateContext,
-  TemplateReplaceSource, UsageState, UsedName,
+  ReferencedExport, RuntimeGlobals, RuntimeSpec, TemplateContext, TemplateReplaceSource,
+  UsageState, UsedName,
 };
 use rustc_hash::FxHashSet;
 use swc_core::atoms::Atom;
 
 use super::ExportsBase;
 
+#[cacheable]
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct CommonJsExportRequireDependency {
   id: DependencyId,
   request: String,
   optional: bool,
-  range: RealDependencyLocation,
+  range: DependencyRange,
   base: ExportsBase,
+  #[cacheable(with=AsVec<AsPreset>)]
   names: Vec<Atom>,
+  #[cacheable(with=AsVec<AsPreset>)]
   ids: Vec<Atom>,
   result_used: bool,
 }
@@ -29,7 +36,7 @@ impl CommonJsExportRequireDependency {
   pub fn new(
     request: String,
     optional: bool,
-    range: RealDependencyLocation,
+    range: DependencyRange,
     base: ExportsBase,
     names: Vec<Atom>,
     result_used: bool,
@@ -75,7 +82,7 @@ impl CommonJsExportRequireDependency {
     if !self.names.is_empty() {
       exports_info = exports_info
         .expect("Should get exports info from imported module")
-        .get_nested_exports_info(mg, Some(self.names.clone()));
+        .get_nested_exports_info(mg, Some(&self.names));
     }
 
     let no_extra_exports = imported_exports_info.is_some_and(|imported_exports_info| {
@@ -157,8 +164,15 @@ impl CommonJsExportRequireDependency {
 
     Some(exports)
   }
+
+  fn get_ids<'a>(&'a self, mg: &'a ModuleGraph) -> &'a [Atom] {
+    mg.get_dep_meta_if_existing(&self.id)
+      .map(|meta| meta.ids.as_slice())
+      .unwrap_or_else(|| self.ids.as_slice())
+  }
 }
 
+#[cacheable_dyn]
 impl Dependency for CommonJsExportRequireDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -179,7 +193,7 @@ impl Dependency for CommonJsExportRequireDependency {
       let Some(name) = self.names.first() else {
         unreachable!();
       };
-      let from = mg.connection_by_dependency(&self.id)?;
+      let from = mg.connection_by_dependency_id(&self.id)?;
       Some(ExportsSpec {
         exports: ExportsOfExportsSpec::Array(vec![ExportNameOrSpec::ExportSpec(ExportSpec {
           name: name.to_owned(),
@@ -188,7 +202,7 @@ impl Dependency for CommonJsExportRequireDependency {
           export: Some(if ids.is_empty() {
             Nullable::Null
           } else {
-            Nullable::Value(ids)
+            Nullable::Value(ids.to_vec())
           }),
           ..Default::default()
         })]),
@@ -196,14 +210,14 @@ impl Dependency for CommonJsExportRequireDependency {
         ..Default::default()
       })
     } else if self.names.is_empty() {
-      let from = mg.connection_by_dependency(&self.id)?;
+      let from = mg.connection_by_dependency_id(&self.id)?;
       if let Some(reexport_info) = self.get_star_reexports(mg, None, from.module_identifier()) {
         Some(ExportsSpec {
           exports: ExportsOfExportsSpec::Array(
             reexport_info
               .iter()
               .map(|name| {
-                let mut export = ids.clone();
+                let mut export = ids.to_vec();
                 export.extend(vec![name.to_owned()]);
                 ExportNameOrSpec::ExportSpec(ExportSpec {
                   name: name.to_owned(),
@@ -247,12 +261,6 @@ impl Dependency for CommonJsExportRequireDependency {
     }
   }
 
-  fn get_ids(&self, mg: &ModuleGraph) -> Vec<Atom> {
-    mg.get_dep_meta_if_existing(&self.id)
-      .map(|meta| meta.ids.clone())
-      .unwrap_or_else(|| self.ids.clone())
-  }
-
   fn get_referenced_exports(
     &self,
     mg: &ModuleGraph,
@@ -264,7 +272,7 @@ impl Dependency for CommonJsExportRequireDependency {
         vec![ExtendedReferencedExport::Array(vec![])]
       } else {
         vec![ExtendedReferencedExport::Export(ReferencedExport {
-          name: ids.clone(),
+          name: ids.to_vec(),
           can_mangle: false,
         })]
       }
@@ -338,6 +346,7 @@ impl Dependency for CommonJsExportRequireDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for CommonJsExportRequireDependency {
   fn apply(
     &self,
@@ -392,7 +401,7 @@ impl DependencyTemplate for CommonJsExportRequireDependency {
       let ids = self.get_ids(mg);
       if let Some(used_imported) = mg
         .get_exports_info(&imported_module.identifier())
-        .get_used_name(mg, *runtime, UsedName::Vec(ids))
+        .get_used_name(mg, *runtime, UsedName::Vec(ids.to_vec()))
       {
         require_expr = format!(
           "{}{}",
@@ -443,6 +452,7 @@ impl DependencyTemplate for CommonJsExportRequireDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for CommonJsExportRequireDependency {
   fn request(&self) -> &str {
     &self.request

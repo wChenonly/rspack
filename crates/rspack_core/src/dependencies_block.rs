@@ -1,5 +1,6 @@
 use std::{borrow::Cow, hash::Hash};
 
+use rspack_cacheable::cacheable;
 use rspack_collections::Identifier;
 use rspack_error::{
   miette::{self, Diagnostic},
@@ -18,6 +19,8 @@ pub trait DependenciesBlock {
   fn get_blocks(&self) -> &[AsyncDependenciesBlockIdentifier];
 
   fn add_dependency_id(&mut self, dependency: DependencyId);
+
+  fn remove_dependency_id(&mut self, _dependency: DependencyId);
 
   fn get_dependencies(&self) -> &[DependencyId];
 }
@@ -42,8 +45,15 @@ pub fn dependencies_block_update_hash(
   }
 }
 
+#[cacheable]
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct AsyncDependenciesBlockIdentifier(Identifier);
+
+impl AsyncDependenciesBlockIdentifier {
+  pub fn as_identifier(self) -> Identifier {
+    self.0
+  }
+}
 
 impl From<String> for AsyncDependenciesBlockIdentifier {
   fn from(value: String) -> Self {
@@ -51,6 +61,13 @@ impl From<String> for AsyncDependenciesBlockIdentifier {
   }
 }
 
+impl From<Identifier> for AsyncDependenciesBlockIdentifier {
+  fn from(value: Identifier) -> Self {
+    Self(value)
+  }
+}
+
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct AsyncDependenciesBlock {
   id: AsyncDependenciesBlockIdentifier,
@@ -58,6 +75,7 @@ pub struct AsyncDependenciesBlock {
   // Vec<Box<T: Sized>> makes sense if T is a large type (see #3530, 1st comment).
   // #3530: https://github.com/rust-lang/rust-clippy/issues/3530
   #[allow(clippy::vec_box)]
+  #[cacheable(omit_bounds)]
   blocks: Vec<Box<AsyncDependenciesBlock>>,
   block_ids: Vec<AsyncDependenciesBlockIdentifier>,
   dependency_ids: Vec<DependencyId>,
@@ -182,14 +200,12 @@ impl DependenciesBlock for AsyncDependenciesBlock {
     self.dependency_ids.push(dependency)
   }
 
+  fn remove_dependency_id(&mut self, dependency: DependencyId) {
+    self.dependency_ids.retain(|dep| dep != &dependency);
+  }
+
   fn get_dependencies(&self) -> &[DependencyId] {
     &self.dependency_ids
-  }
-}
-
-impl AsyncDependenciesBlock {
-  pub fn remove_dependency_id(&mut self, dependency: DependencyId) {
-    self.dependency_ids.retain(|dep| dep != &dependency);
   }
 }
 

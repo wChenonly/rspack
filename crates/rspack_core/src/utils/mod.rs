@@ -1,15 +1,12 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::cmp::Ordering;
 
-use itertools::Itertools;
 use rspack_collections::Identifier;
 use rspack_util::comparators::compare_ids;
 use rspack_util::comparators::compare_numbers;
-use rustc_hash::FxHashMap as HashMap;
 
 use crate::{
   BoxModule, ChunkGraph, ChunkGroupByUkey, ChunkGroupUkey, ChunkUkey, Compilation, ModuleGraph,
 };
-
 mod comment;
 mod compile_boolean_matcher;
 mod concatenated_module_visitor;
@@ -18,6 +15,8 @@ mod extract_url_and_global;
 mod fast_actions;
 mod file_counter;
 mod find_graph_roots;
+mod fs_trim;
+pub use fs_trim::*;
 mod hash;
 mod identifier;
 mod module_rules;
@@ -93,24 +92,6 @@ pub fn join_string_component(mut components: Vec<String>) -> String {
       )
     }
   }
-}
-
-pub fn stringify_map<T: Display>(map: &HashMap<String, T>) -> String {
-  format!(
-    r#"{{{}}}"#,
-    map
-      .keys()
-      .sorted_unstable()
-      .fold(String::new(), |prev, cur| {
-        prev
-          + format!(
-            r#"{}: {},"#,
-            serde_json::to_string(cur).expect("json stringify failed"),
-            map.get(cur).expect("get key from map")
-          )
-          .as_str()
-      })
-  )
 }
 
 pub fn sort_group_by_index(
@@ -216,22 +197,20 @@ pub fn compare_chunks_with_graph(
   chunk_a_ukey: &ChunkUkey,
   chunk_b_ukey: &ChunkUkey,
 ) -> Ordering {
-  let cgc_a = chunk_graph.get_chunk_graph_chunk(chunk_a_ukey);
-  let cgc_b = chunk_graph.get_chunk_graph_chunk(chunk_b_ukey);
-  if cgc_a.modules.len() > cgc_b.modules.len() {
+  let modules_a = chunk_graph.get_chunk_modules_identifier(chunk_a_ukey);
+  let modules_b = chunk_graph.get_chunk_modules_identifier(chunk_b_ukey);
+  if modules_a.len() > modules_b.len() {
     return Ordering::Less;
   }
-  if cgc_a.modules.len() < cgc_b.modules.len() {
+  if modules_a.len() < modules_b.len() {
     return Ordering::Greater;
   }
 
-  let modules_a: Vec<&BoxModule> = cgc_a
-    .modules
+  let modules_a: Vec<&BoxModule> = modules_a
     .iter()
     .filter_map(|module_id| module_graph.module_by_identifier(module_id))
     .collect();
-  let modules_b: Vec<&BoxModule> = cgc_b
-    .modules
+  let modules_b: Vec<&BoxModule> = modules_b
     .iter()
     .filter_map(|module_id| module_graph.module_by_identifier(module_id))
     .collect();

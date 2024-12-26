@@ -6,7 +6,7 @@ use napi_derive::napi;
 use rspack_core::RuntimeGlobals;
 use rustc_hash::FxHashMap;
 
-use crate::JsChunk;
+use crate::JsChunkWrapper;
 
 static RUNTIME_GLOBAL_MAP: LazyLock<(
   FxHashMap<RuntimeGlobals, String>,
@@ -71,7 +71,7 @@ static RUNTIME_GLOBAL_MAP: LazyLock<(
   declare_runtime_global!(COMPAT_GET_DEFAULT_EXPORT);
   declare_runtime_global!(CREATE_FAKE_NAMESPACE_OBJECT);
   declare_runtime_global!(NODE_MODULE_DECORATOR);
-  declare_runtime_global!(HARMONY_MODULE_DECORATOR);
+  declare_runtime_global!(ESM_MODULE_DECORATOR);
   declare_runtime_global!(SYSTEM_CONTEXT);
   declare_runtime_global!(THIS_AS_EXPORTS);
   declare_runtime_global!(CURRENT_REMOTE_GET_SCOPE);
@@ -91,9 +91,10 @@ static RUNTIME_GLOBAL_MAP: LazyLock<(
   (to_js_map, from_js_map)
 });
 
-#[napi(object)]
+#[napi(object, object_from_js = false)]
 pub struct JsAdditionalTreeRuntimeRequirementsArg {
-  pub chunk: JsChunk,
+  #[napi(ts_type = "JsChunk")]
+  pub chunk: JsChunkWrapper,
   pub runtime_requirements: JsRuntimeGlobals,
 }
 
@@ -142,9 +143,10 @@ impl JsAdditionalTreeRuntimeRequirementsResult {
   }
 }
 
-#[napi(object)]
+#[napi(object, object_from_js = false)]
 pub struct JsRuntimeRequirementInTreeArg {
-  pub chunk: JsChunk,
+  #[napi(ts_type = "JsChunk")]
+  pub chunk: JsChunkWrapper,
   pub runtime_requirements: JsRuntimeGlobals,
 }
 

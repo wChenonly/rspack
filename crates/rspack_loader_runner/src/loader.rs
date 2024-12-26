@@ -9,8 +9,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use derivative::Derivative;
+use derive_more::Debug;
 use regex::Regex;
+use rspack_cacheable::cacheable_dyn;
 use rspack_collections::{Identifiable, Identifier};
 use rspack_error::Result;
 use rspack_paths::Utf8PathBuf;
@@ -18,10 +19,9 @@ use rspack_util::identifier::strip_zero_width_space_for_fragment;
 
 use super::LoaderContext;
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct LoaderItem<Context> {
-  #[derivative(Debug(format_with = "fmt_loader"))]
+  #[debug("{}", loader.identifier())]
   loader: Arc<dyn Loader<Context>>,
   /// Loader identifier
   request: Identifier,
@@ -29,10 +29,13 @@ pub struct LoaderItem<Context> {
   /// The absolute path is used to represent a loader stayed on the JS side.
   /// `$` split chain may be used to represent a composed loader chain from the JS side.
   /// Virtual path with a builtin protocol to represent a loader from the native side. e.g "builtin:".
+  #[allow(dead_code)]
   path: Utf8PathBuf,
   /// Query of a loader, starts with `?`
+  #[allow(dead_code)]
   query: Option<String>,
   /// Fragment of a loader, starts with `#`.
+  #[allow(dead_code)]
   fragment: Option<String>,
   /// Data shared between pitching and normal
   data: serde_json::Value,
@@ -119,7 +122,7 @@ impl<C> Display for LoaderItem<C> {
 
 pub struct LoaderItemList<'a, Context>(pub &'a [LoaderItem<Context>]);
 
-impl<'a, Context> Deref for LoaderItemList<'a, Context> {
+impl<Context> Deref for LoaderItemList<'_, Context> {
   type Target = [LoaderItem<Context>];
 
   fn deref(&self) -> &Self::Target {
@@ -127,7 +130,7 @@ impl<'a, Context> Deref for LoaderItemList<'a, Context> {
   }
 }
 
-impl<'a, Context> Default for LoaderItemList<'a, Context> {
+impl<Context> Default for LoaderItemList<'_, Context> {
   fn default() -> Self {
     Self(&[])
   }
@@ -143,9 +146,9 @@ pub trait DisplayWithSuffix: Display {
   }
 }
 
-impl<'a, Context> DisplayWithSuffix for LoaderItemList<'a, Context> {}
+impl<Context> DisplayWithSuffix for LoaderItemList<'_, Context> {}
 impl<Context> DisplayWithSuffix for LoaderItem<Context> {}
-impl<'a, Context> Display for LoaderItemList<'a, Context> {
+impl<Context> Display for LoaderItemList<'_, Context> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let s = self
       .0
@@ -164,6 +167,7 @@ impl<C> Identifiable for LoaderItem<C> {
   }
 }
 
+#[cacheable_dyn]
 #[async_trait]
 pub trait Loader<Context = ()>: Identifiable + Send + Sync
 where
@@ -179,13 +183,6 @@ where
     // noop
     Ok(())
   }
-}
-
-pub fn fmt_loader<T>(
-  loader: &Arc<dyn Loader<T>>,
-  fmt: &mut std::fmt::Formatter<'_>,
-) -> Result<(), std::fmt::Error> {
-  write!(fmt, "{}", loader.identifier())
 }
 
 impl<C> From<Arc<dyn Loader<C>>> for LoaderItem<C> {
@@ -260,13 +257,15 @@ static PATH_QUERY_FRAGMENT_REGEXP: LazyLock<Regex> = LazyLock::new(|| {
 pub(crate) mod test {
   use std::{path::PathBuf, sync::Arc};
 
+  use rspack_cacheable::{cacheable, cacheable_dyn};
   use rspack_collections::{Identifiable, Identifier};
 
   use super::{Loader, LoaderItem};
 
+  #[cacheable]
   #[allow(dead_code)]
   pub(crate) struct Custom;
-
+  #[cacheable_dyn]
   #[async_trait::async_trait]
   impl Loader<()> for Custom {}
   impl Identifiable for Custom {
@@ -275,8 +274,10 @@ pub(crate) mod test {
     }
   }
 
+  #[cacheable]
   #[allow(dead_code)]
   pub(crate) struct Custom2;
+  #[cacheable_dyn]
   #[async_trait::async_trait]
   impl Loader<()> for Custom2 {}
   impl Identifiable for Custom2 {
@@ -285,8 +286,10 @@ pub(crate) mod test {
     }
   }
 
+  #[cacheable]
   #[allow(dead_code)]
   pub(crate) struct Builtin;
+  #[cacheable_dyn]
   #[async_trait::async_trait]
   impl Loader<()> for Builtin {}
   impl Identifiable for Builtin {
@@ -295,8 +298,10 @@ pub(crate) mod test {
     }
   }
 
+  #[cacheable]
   pub(crate) struct PosixNonLenBlankUnicode;
 
+  #[cacheable_dyn]
   #[async_trait::async_trait]
   impl Loader<()> for PosixNonLenBlankUnicode {}
   impl Identifiable for PosixNonLenBlankUnicode {
@@ -305,7 +310,9 @@ pub(crate) mod test {
     }
   }
 
+  #[cacheable]
   pub(crate) struct WinNonLenBlankUnicode;
+  #[cacheable_dyn]
   #[async_trait::async_trait]
   impl Loader<()> for WinNonLenBlankUnicode {}
   impl Identifiable for WinNonLenBlankUnicode {

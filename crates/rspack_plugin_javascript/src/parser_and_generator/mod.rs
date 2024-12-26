@@ -2,31 +2,35 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use rspack_cacheable::with::Skip;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_core::diagnostics::map_box_diagnostics_to_module_parse_diagnostics;
 use rspack_core::rspack_sources::{BoxSource, ReplaceSource, Source, SourceExt};
 use rspack_core::{
   render_init_fragments, AsyncDependenciesBlockIdentifier, BuildMetaExportsType, ChunkGraph,
-  Compilation, DependenciesBlock, DependencyId, GenerateContext, Module, ModuleGraph, ModuleType,
-  ParseContext, ParseResult, ParserAndGenerator, SideEffectsBailoutItem, SourceType, SpanExt,
-  TemplateContext, TemplateReplaceSource,
+  Compilation, DependenciesBlock, DependencyId, DependencyRange, GenerateContext, Module,
+  ModuleGraph, ModuleType, ParseContext, ParseResult, ParserAndGenerator, SideEffectsBailoutItem,
+  SourceType, TemplateContext, TemplateReplaceSource,
 };
 use rspack_error::miette::Diagnostic;
 use rspack_error::{DiagnosticExt, IntoTWithDiagnosticArray, Result, TWithDiagnosticArray};
-use rspack_util::itoa;
 use swc_core::common::comments::Comments;
 use swc_core::common::input::SourceFileInput;
-use swc_core::common::{FileName, Span, SyntaxContext};
+use swc_core::common::{FileName, SyntaxContext};
 use swc_core::ecma::ast;
 use swc_core::ecma::parser::{lexer::Lexer, EsSyntax, Syntax};
 use swc_node_comments::SwcComments;
 
-use crate::dependency::HarmonyCompatibilityDependency;
+use crate::dependency::ESMCompatibilityDependency;
 use crate::visitors::{scan_dependencies, swc_visitor::resolver};
 use crate::visitors::{semicolon, ScanDependenciesResult};
 use crate::{BoxJavascriptParserPlugin, SideEffectsFlagPluginVisitor, SyntaxContextInfo};
 
+#[cacheable]
 #[derive(Default)]
 pub struct JavaScriptParserAndGenerator {
+  // TODO
+  #[cacheable(with=Skip)]
   parser_plugins: Vec<BoxJavascriptParserPlugin>,
 }
 
@@ -84,6 +88,7 @@ impl JavaScriptParserAndGenerator {
 
 static SOURCE_TYPES: &[SourceType; 1] = &[SourceType::JavaScript];
 
+#[cacheable_dyn]
 impl ParserAndGenerator for JavaScriptParserAndGenerator {
   fn source_types(&self) -> &[SourceType] {
     SOURCE_TYPES
@@ -178,13 +183,10 @@ impl ParserAndGenerator for JavaScriptParserAndGenerator {
         context.top_level_mark,
         false,
       ));
-      // dbg!(&resource_data.resource_path);
-      // dbg!(lexer.clone().collect_vec());
       program.visit_with(&mut semicolon::InsertedSemicolons {
         semicolons: &mut semicolons,
         tokens: &lexer.collect_vec(),
       });
-      // dbg!(&semicolons);
     });
 
     let unresolved_mark = ast.get_context().unresolved_mark;
@@ -238,38 +240,14 @@ impl ParserAndGenerator for JavaScriptParserAndGenerator {
           .side_effects_item
           .take()
           .and_then(|item| -> Option<_> {
-            let msg = span_to_location(item.span, &source.source())?;
+            let source = source.source();
+            let msg = Into::<DependencyRange>::into(item.span)
+              .to_loc(Some(source.as_ref()))?
+              .to_string();
             Some(SideEffectsBailoutItem { msg, ty: item.ty })
           })
       });
     }
-
-    // let inner_graph = if compiler_options.optimization.inner_graph {
-    //   ast.transform(|program, context| {
-    //     let unresolved_ctxt = SyntaxContext::empty().apply_mark(context.unresolved_mark);
-    //     let top_level_ctxt = SyntaxContext::empty().apply_mark(context.top_level_mark);
-    //     let mut plugin = InnerGraphPlugin::new(
-    //       &mut dependencies,
-    //       unresolved_ctxt,
-    //       top_level_ctxt,
-    //       &mut usage_span_record,
-    //       &import_map,
-    //       module_identifier,
-    //       program.comments.take(),
-    //       &path_ignored_spans,
-    //     );
-    //     plugin.enable();
-    //     // program.visit_with(&mut plugin);
-    //     program.comments = plugin.comments.take();
-    //     Some(plugin)
-    //   })
-    // } else {
-    //   None
-    // };
-
-    // if let Some(mut inner_graph) = inner_graph {
-    //   inner_graph.infer_dependency_usage();
-    // }
 
     Ok(
       ParseResult {
@@ -340,7 +318,7 @@ impl ParserAndGenerator for JavaScriptParserAndGenerator {
     _mg: &ModuleGraph,
     _cg: &ChunkGraph,
   ) -> Option<Cow<'static, str>> {
-    // Only harmony modules are valid for optimization
+    // Only ES modules are valid for optimization
     if module.build_meta().is_none()
       || module
         .build_meta()
@@ -355,7 +333,7 @@ impl ParserAndGenerator for JavaScriptParserAndGenerator {
         // https://github.com/webpack/webpack/blob/b9fb99c63ca433b24233e0bbc9ce336b47872c08/lib/javascript/JavascriptGenerator.js#L65-L74
         dep
           .as_any()
-          .downcast_ref::<HarmonyCompatibilityDependency>()
+          .downcast_ref::<ESMCompatibilityDependency>()
           .is_some()
       }) {
         return Some("Module is not an ECMAScript module".into());
@@ -370,36 +348,6 @@ impl ParserAndGenerator for JavaScriptParserAndGenerator {
       return Some(format!("Module uses {bailout}").into());
     }
     None
-  }
-}
-
-// Todo(shulaoda): check if this can be removed
-fn span_to_location(span: Span, source: &str) -> Option<String> {
-  let r = ropey::Rope::from_str(source);
-  let start = span.real_lo();
-  let end = span.real_hi();
-  let start_char_offset = r.try_byte_to_char(start as usize).ok()?;
-  let start_line = r.char_to_line(start_char_offset);
-  let start_column = start_char_offset - r.line_to_char(start_line);
-
-  let end_char_offset = r.try_byte_to_char(end as usize).ok()?;
-  let end_line = r.char_to_line(end_char_offset);
-  let end_column = end_char_offset - r.line_to_char(end_line);
-  if start_line == end_line {
-    Some(format!(
-      "{}:{}-{}",
-      itoa!(start_line + 1),
-      itoa!(start_column),
-      itoa!(end_column)
-    ))
-  } else {
-    Some(format!(
-      "{}:{}-{}:{}",
-      itoa!(start_line + 1),
-      itoa!(start_column),
-      itoa!(end_line + 1),
-      itoa!(end_column)
-    ))
   }
 }
 

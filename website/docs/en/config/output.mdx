@@ -154,7 +154,7 @@ module.exports = {
 
 ## output.clean
 
-- **Type:** `boolean`
+- **Type:** `boolean | { keep?: string }`
 - **Default:** `false`
 
 Before generating the products, delete all files in the output directory.
@@ -164,6 +164,35 @@ module.exports = {
   //...
   output: {
     clean: true, // Clean the output directory before emit.
+  },
+
+  // or
+  output: {
+    clean: {
+      keep: 'ignored/dir', // keep these assets under 'dist/ignored/dir'.
+    },
+  },
+};
+```
+
+## output.compareBeforeEmit
+
+<ApiMeta addedVersion={'1.1.0'} />
+
+- **Type:** `boolean`
+- **Default:** `true`
+
+Tells Rspack to check if to be emitted file already exists and has the same content before writing to the output file system.
+
+:::warning
+Rspack will not write output file when file already exists on disk with the same content.
+:::
+
+```js title="rspack.config.js"
+module.exports = {
+  //...
+  output: {
+    compareBeforeEmit: false,
   },
 };
 ```
@@ -326,7 +355,7 @@ module.exports = {
 - **Type:** `('fetch-streaming' | 'fetch' | 'async-node' | string | false)[]`
 - **Default:** Determined by [`output.wasmLoading`](#outputwasmloading) and [`output.workerWasmLoading`](#workerWasmLoading)
 
-List of wasm loading types enabled for use by entry points.
+List of Wasm loading types enabled for use by entry points.
 
 ```js title="rspack.config.js"
 module.exports = {
@@ -355,6 +384,8 @@ module.exports = {
       const: true,
       // The environment supports destructuring ('{ a, b } = obj').
       destructuring: true,
+      // The environment supports 'document' variable.
+      document: true,
       // The environment supports an async import() function to import EcmaScript modules.
       dynamicImport: false,
       // The environment supports an async import() when creating a worker, only for web targets at the moment.
@@ -527,7 +558,7 @@ Substitutions available on URL-level:
 
 :::
 
-The length of hashes (`[hash]`, `[contenthash]` or `[chunkhash]`) can be specified using `[hash:16]` (defaults to 20). Alternatively, specify [`output.hashDigestLength`](#outputhashdigestlength) to configure the length globally.
+The length of hashes (`[hash]`, `[contenthash]` or `[chunkhash]`) can be specified using `[hash:12]` (defaults to 16). Alternatively, specify [`output.hashDigestLength`](#outputhashdigestlength) to configure the length globally.
 
 It is possible to filter out placeholder replacement when you want to use one of the placeholders in the actual file name. For example, to output a file `[name].js`, you have to escape the `[name]` placeholder by adding backslashes between the brackets. So that `[\name\]` generates `[name]` instead of getting replaced with the `name` of the asset.
 
@@ -599,18 +630,14 @@ The encoding to use when generating the hash. Using `'base64'` for filenames mig
 ## output.hashDigestLength
 
 - **Type:** `number`
-- **Default:** `20`
+- **Default:** `16`
 
 The prefix length of the hash digest to use.
-
-:::tip
-The default value for `hashDigestLength` is `20`. When the feature [`experiments.futureDefaults`](/config/experiments#experimentsfuturedefaults) is enabled, it will use `16` as the default value.
-:::
 
 ## output.hashFunction
 
 - **Type:** `'md4' | 'xxhash64'`
-- **Default:** `'md4'`
+- **Default:** `'xxhash64'`
 
 The hashing algorithm to use.
 
@@ -624,7 +651,7 @@ module.exports = {
 ```
 
 :::tip
-`hashFunction` supports `xxhash64` as a faster algorithm, which will be used as default when [`experiments.futureDefaults`](/config/experiments#experimentsfuturedefaults) is enabled.
+Rspack uses the faster `xxhash64` algorithm by default since v1.1.
 :::
 
 ## output.hashSalt
@@ -1057,7 +1084,7 @@ module.exports = {
 };
 ```
 
-Output ES Module.
+Output ES modules.
 
 However this feature is still experimental and not fully supported yet, so make sure to enable [`experiments.outputModule`](/config/experiments#experimentsoutputmodule) beforehand. In addition, you can track the development progress in [this thread](https://github.com/webpack/webpack/issues/2933#issuecomment-774253975).
 
@@ -1653,6 +1680,12 @@ module.exports = {
 };
 ```
 
+## output.strictModuleExceptionHandling
+
+- **Types:** boolean
+
+Tell Rspack to remove a module from the module instance cache (require.cache) if it throws an exception when it is required.
+
 ## output.trustedTypes
 
 - **Type:** `true | string | object`
@@ -1672,6 +1705,28 @@ module.exports = {
   output: {
     trustedTypes: {
       policyName: 'my-application#webpack',
+    },
+  },
+};
+```
+
+### output.trustedTypes.onPolicyCreationFailure
+
+<ApiMeta addedVersion={'1.1.6'} />
+
+- **Type:** `"stop" | "continue"`
+- **Default:** `"stop"`
+
+Determine whether to proceed with loading in anticipation that [`require-trusted-types-for 'script'`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/require-trusted-types-for) has not been enforced or to immediately fail when the call to `trustedTypes.createPolicy(...)` fails due to the policy name being absent from the CSP `trusted-types` list or being a duplicate.
+
+```js title="rspack.config.js"
+module.exports = {
+  //...
+  output: {
+    //...
+    trustedTypes: {
+      policyName: 'my-application#webpack',
+      onPolicyCreationFailure: 'continue',
     },
   },
 };

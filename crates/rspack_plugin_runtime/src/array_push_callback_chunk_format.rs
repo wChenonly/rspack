@@ -1,9 +1,10 @@
 use std::hash::Hash;
 
-use rspack_core::rspack_sources::{ConcatSource, RawSource, SourceExt};
+use rspack_core::rspack_sources::{ConcatSource, RawStringSource, SourceExt};
 use rspack_core::{
-  ApplyContext, ChunkKind, ChunkUkey, Compilation, CompilationAdditionalChunkRuntimeRequirements,
-  CompilationParams, CompilerCompilation, CompilerOptions, Plugin, PluginContext, RuntimeGlobals,
+  ApplyContext, ChunkGraph, ChunkKind, ChunkUkey, Compilation,
+  CompilationAdditionalChunkRuntimeRequirements, CompilationParams, CompilerCompilation,
+  CompilerOptions, Plugin, PluginContext, RuntimeGlobals,
 };
 use rspack_error::{error, Result};
 use rspack_hash::RspackHash;
@@ -106,35 +107,36 @@ fn render_chunk(
   let hot_update_global = &compilation.options.output.hot_update_global;
   let mut source = ConcatSource::default();
 
-  if matches!(chunk.kind, ChunkKind::HotUpdate) {
-    source.add(RawSource::from(format!(
+  if matches!(chunk.kind(), ChunkKind::HotUpdate) {
+    source.add(RawStringSource::from(format!(
       "{}[{}]('{}', ",
       global_object,
       serde_json::to_string(hot_update_global).map_err(|e| error!(e.to_string()))?,
-      chunk.expect_id()
+      chunk.expect_id(&compilation.chunk_ids_artifact)
     )));
     source.add(render_source.source.clone());
     if has_runtime_modules {
-      source.add(RawSource::from(",".to_string()));
+      source.add(RawStringSource::from_static(","));
       source.add(render_chunk_runtime_modules(compilation, chunk_ukey)?);
     }
-    source.add(RawSource::from(")".to_string()));
+    source.add(RawStringSource::from_static(")"));
   } else {
     let chunk_loading_global = &compilation.options.output.chunk_loading_global;
 
-    source.add(RawSource::from(format!(
+    source.add(RawStringSource::from(format!(
       r#"({}['{}'] = {}['{}'] || []).push([[{}], "#,
       global_object,
       chunk_loading_global,
       global_object,
       chunk_loading_global,
-      serde_json::to_string(chunk.expect_id()).expect("json stringify failed"),
+      serde_json::to_string(chunk.expect_id(&compilation.chunk_ids_artifact))
+        .expect("json stringify failed"),
     )));
     source.add(render_source.source.clone());
     let has_entry = chunk.has_entry_module(&compilation.chunk_graph);
     if has_entry || has_runtime_modules {
-      source.add(RawSource::from(","));
-      source.add(RawSource::from(format!(
+      source.add(RawStringSource::from_static(","));
+      source.add(RawStringSource::from(format!(
         "function({}) {{\n",
         RuntimeGlobals::REQUIRE
       )));
@@ -160,16 +162,17 @@ fn render_chunk(
           &mut render_source,
         )?;
         source.add(render_source.source);
-        let runtime_requirements = compilation
-          .chunk_graph
-          .get_tree_runtime_requirements(chunk_ukey);
+        let runtime_requirements =
+          ChunkGraph::get_tree_runtime_requirements(compilation, chunk_ukey);
         if runtime_requirements.contains(RuntimeGlobals::RETURN_EXPORTS_FROM_RUNTIME) {
-          source.add(RawSource::from("return __webpack_exports__;\n"));
+          source.add(RawStringSource::from_static(
+            "return __webpack_exports__;\n",
+          ));
         }
       }
-      source.add(RawSource::from("\n}\n"));
+      source.add(RawStringSource::from_static("\n}\n"));
     }
-    source.add(RawSource::from("])"));
+    source.add(RawStringSource::from_static("])"));
   }
   render_source.source = source.boxed();
   Ok(())

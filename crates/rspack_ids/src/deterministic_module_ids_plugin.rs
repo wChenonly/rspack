@@ -1,5 +1,6 @@
 use rspack_core::{
-  ApplyContext, Compilation, CompilationModuleIds, CompilerOptions, Plugin, PluginContext,
+  ApplyContext, ChunkGraph, Compilation, CompilationModuleIds, CompilerOptions, Plugin,
+  PluginContext,
 };
 use rspack_error::Result;
 use rspack_hook::{plugin, plugin_hook};
@@ -17,7 +18,7 @@ pub struct DeterministicModuleIdsPlugin;
 fn module_ids(&self, compilation: &mut Compilation) -> Result<()> {
   let (mut used_ids, modules) = get_used_module_ids_and_modules(compilation, None);
 
-  let mut chunk_graph = std::mem::take(&mut compilation.chunk_graph);
+  let mut module_ids = std::mem::take(&mut compilation.module_ids_artifact);
   let context = compilation.options.context.as_ref();
   let max_length = 3;
   let fail_on_conflict = false;
@@ -36,13 +37,11 @@ fn module_ids(&self, compilation: &mut Compilation) -> Result<()> {
     |m| get_full_module_name(m, context),
     |a, b| compare_modules_by_pre_order_index_or_identifier(&module_graph, a, b),
     |module, id| {
-      let size = used_ids.len();
-      used_ids.insert(id.to_string());
-      if used_ids.len() == size {
+      if !used_ids.insert(id.to_string()) {
         conflicts += 1;
         return false;
       }
-      chunk_graph.set_module_id(module.identifier(), id.to_string());
+      ChunkGraph::set_module_id(&mut module_ids, module.identifier(), id.to_string().into());
       true
     },
     &[usize::pow(10, max_length)],
@@ -50,7 +49,7 @@ fn module_ids(&self, compilation: &mut Compilation) -> Result<()> {
     used_ids_len,
     salt,
   );
-  compilation.chunk_graph = chunk_graph;
+  compilation.module_ids_artifact = module_ids;
   if fail_on_conflict && conflicts > 0 {
     // TODO: better error msg
     panic!("Assigning deterministic module ids has lead to conflicts {conflicts}");

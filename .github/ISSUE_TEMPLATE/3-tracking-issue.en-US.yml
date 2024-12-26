@@ -1,6 +1,7 @@
 name: "📝 Tracking Issue"
 description: Create a tracking issue
 title: "[Tracking]: "
+type: Task
 labels: ["tracking issue"]
 body:
   - type: textarea
@@ -8,8 +9,6 @@ body:
     attributes:
       label: What subject does this issue tracking?
       value: |
-        # [Subject]
-
         ```[tasklist]
         ### Tasks
         - [ ] Add a draft title or issue reference here

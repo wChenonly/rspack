@@ -1,12 +1,14 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
+#[rspack_cacheable::cacheable]
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyCategory {
   #[default]
   Unknown,
   Esm,
   CommonJS,
+  Amd,
   Url,
   CssImport,
   CssCompose,
@@ -41,6 +43,7 @@ impl DependencyCategory {
       DependencyCategory::Unknown => "unknown",
       DependencyCategory::Esm => "esm",
       DependencyCategory::CommonJS => "commonjs",
+      DependencyCategory::Amd => "amd",
       DependencyCategory::Url => "url",
       DependencyCategory::CssImport => "css-import",
       DependencyCategory::CssCompose => "css-compose",

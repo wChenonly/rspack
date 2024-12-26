@@ -1,15 +1,16 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use cow_utils::CowUtils;
+use rspack_cacheable::{cacheable, cacheable_dyn};
 use rspack_collections::Identifiable;
 use rspack_core::{
   impl_module_meta_info, module_namespace_promise, module_update_hash,
-  rspack_sources::{RawSource, Source},
+  rspack_sources::{RawStringSource, Source},
   AsyncDependenciesBlock, AsyncDependenciesBlockIdentifier, BoxDependency, BuildContext, BuildInfo,
-  BuildMeta, BuildResult, CodeGenerationData, CodeGenerationResult, Compilation,
-  ConcatenationScope, Context, DependenciesBlock, DependencyId, FactoryMeta, Module,
-  ModuleFactoryCreateData, ModuleIdentifier, ModuleLayer, ModuleType, RealDependencyLocation,
-  RuntimeGlobals, RuntimeSpec, SourceType, TemplateContext,
+  BuildMeta, BuildResult, ChunkGraph, CodeGenerationData, CodeGenerationResult, Compilation,
+  ConcatenationScope, Context, DependenciesBlock, DependencyId, DependencyRange, FactoryMeta,
+  Module, ModuleFactoryCreateData, ModuleIdentifier, ModuleLayer, ModuleType, RuntimeGlobals,
+  RuntimeSpec, SourceType, TemplateContext,
 };
 use rspack_error::{Diagnosable, Diagnostic, Result};
 use rspack_plugin_javascript::dependency::CommonJsRequireDependency;
@@ -24,6 +25,7 @@ use crate::dependency::LazyCompilationDependency;
 static MODULE_TYPE: ModuleType = ModuleType::JsAuto;
 static SOURCE_TYPE: [SourceType; 1] = [SourceType::JavaScript];
 
+#[cacheable]
 #[derive(Debug)]
 pub(crate) struct LazyCompilationProxyModule {
   build_info: Option<BuildInfo>,
@@ -100,6 +102,7 @@ impl Diagnosable for LazyCompilationProxyModule {
   }
 }
 
+#[cacheable_dyn]
 #[async_trait::async_trait]
 impl Module for LazyCompilationProxyModule {
   impl_module_meta_info!();
@@ -116,7 +119,7 @@ impl Module for LazyCompilationProxyModule {
     self.create_data.issuer_layer.as_ref()
   }
 
-  fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+  fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
     200f64
   }
 
@@ -134,14 +137,15 @@ impl Module for LazyCompilationProxyModule {
 
   async fn build(
     &mut self,
-    _build_context: BuildContext<'_>,
+    _build_context: BuildContext,
     _compilation: Option<&Compilation>,
   ) -> Result<BuildResult> {
     let client_dep = CommonJsRequireDependency::new(
       self.client.clone(),
-      RealDependencyLocation::new(0, 0),
+      DependencyRange::new(0, 0),
       None,
       false,
+      None,
     );
     let mut dependencies = vec![];
     let mut blocks = vec![];
@@ -162,7 +166,7 @@ impl Module for LazyCompilationProxyModule {
 
     let mut files = FxHashSet::default();
     files.extend(self.create_data.file_dependencies.clone());
-    files.insert(self.resource.to_owned().into());
+    files.insert(Path::new(&self.resource).into());
 
     Ok(BuildResult {
       build_info: BuildInfo {
@@ -191,7 +195,6 @@ impl Module for LazyCompilationProxyModule {
 
     let client_dep_id = self.dependencies[0];
     let module_graph = &compilation.get_module_graph();
-    let chunk_graph = &compilation.chunk_graph;
 
     let client_module = module_graph
       .module_identifier_by_dependency_id(&client_dep_id)
@@ -201,9 +204,7 @@ impl Module for LazyCompilationProxyModule {
 
     let client = format!(
       "var client = __webpack_require__(\"{}\");\nvar data = \"{}\"",
-      chunk_graph
-        .get_module_id(*client_module)
-        .as_ref()
+      ChunkGraph::get_module_id(&compilation.module_ids_artifact, *client_module)
         .expect("should have module id"),
       self.data
     );
@@ -236,7 +237,7 @@ impl Module for LazyCompilationProxyModule {
         data: &mut codegen_data,
       };
 
-      RawSource::from(format!(
+      RawStringSource::from(format!(
         "{client}
         module.exports = {};
         if (module.hot) {{
@@ -257,15 +258,14 @@ impl Module for LazyCompilationProxyModule {
           "import()",
           false
         ),
-        chunk_graph
-          .get_module_id(*module)
-          .as_ref()
+        ChunkGraph::get_module_id(&compilation.module_ids_artifact, *module)
+          .map(|s| s.as_str())
           .expect("should have module id")
           .cow_replace('"', r#"\""#),
         keep_active,
       ))
     } else {
-      RawSource::from(format!(
+      RawStringSource::from(format!(
         "{}
         var resolveSelf, onError;
         module.exports = new Promise(function(resolve, reject) {{ resolveSelf = resolve; onError = reject; }});
@@ -284,11 +284,6 @@ impl Module for LazyCompilationProxyModule {
     let mut codegen_result = CodeGenerationResult::default().with_javascript(Arc::new(source));
     codegen_result.runtime_requirements = runtime_requirements;
     codegen_result.data = codegen_data;
-    codegen_result.set_hash(
-      &compilation.options.output.hash_function,
-      &compilation.options.output.hash_digest,
-      &compilation.options.output.hash_salt,
-    );
 
     Ok(codegen_result)
   }
@@ -323,6 +318,10 @@ impl DependenciesBlock for LazyCompilationProxyModule {
 
   fn add_dependency_id(&mut self, dependency: rspack_core::DependencyId) {
     self.dependencies.push(dependency);
+  }
+
+  fn remove_dependency_id(&mut self, dependency: rspack_core::DependencyId) {
+    self.dependencies.retain(|d| d != &dependency);
   }
 
   fn get_dependencies(&self) -> &[rspack_core::DependencyId] {

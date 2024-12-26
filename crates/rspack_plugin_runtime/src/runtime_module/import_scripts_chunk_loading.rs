@@ -1,8 +1,8 @@
 use cow_utils::CowUtils;
-use rspack_collections::Identifier;
+use rspack_collections::{DatabaseItem, Identifier};
 use rspack_core::{
   compile_boolean_matcher, impl_runtime_module,
-  rspack_sources::{BoxSource, ConcatSource, RawSource, SourceExt},
+  rspack_sources::{BoxSource, ConcatSource, RawStringSource, SourceExt},
   BooleanMatcher, Chunk, ChunkUkey, Compilation, RuntimeGlobals, RuntimeModule, RuntimeModuleStage,
 };
 
@@ -55,7 +55,7 @@ impl ImportScriptsChunkLoadingRuntimeModule {
         .expect("should able to be serde_json::to_string")
       )
     };
-    Ok(RawSource::from(format!("{} = {};\n", RuntimeGlobals::BASE_URI, base_uri)).boxed())
+    Ok(RawStringSource::from(format!("{} = {};\n", RuntimeGlobals::BASE_URI, base_uri)).boxed())
   }
 }
 
@@ -69,7 +69,7 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
       .chunk_by_ukey
       .expect_get(&self.chunk.expect("The chunk should be attached."));
 
-    let runtime_requirements = get_chunk_runtime_requirements(compilation, &chunk.ukey);
+    let runtime_requirements = get_chunk_runtime_requirements(compilation, &chunk.ukey());
     let initial_chunks = get_initial_chunk_ids(self.chunk, compilation, chunk_has_js);
 
     let with_base_uri = runtime_requirements.contains(RuntimeGlobals::BASE_URI);
@@ -80,7 +80,7 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
     let condition_map =
       compilation
         .chunk_graph
-        .get_chunk_condition_map(&chunk.ukey, compilation, chunk_has_js);
+        .get_chunk_condition_map(&chunk.ukey(), compilation, chunk_has_js);
     let has_js_matcher = compile_boolean_matcher(&condition_map);
 
     let mut source = ConcatSource::default();
@@ -93,14 +93,14 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
     // "1" means "already loaded"
     if with_hmr {
       let state_expression = format!("{}_importScripts", RuntimeGlobals::HMR_RUNTIME_STATE_PREFIX);
-      source.add(RawSource::from(format!(
+      source.add(RawStringSource::from(format!(
         "var installedChunks = {} = {} || {};\n",
         state_expression,
         state_expression,
         &stringify_chunks(&initial_chunks, 1)
       )));
     } else {
-      source.add(RawSource::from(format!(
+      source.add(RawStringSource::from(format!(
         "var installedChunks = {};\n",
         &stringify_chunks(&initial_chunks, 1)
       )));
@@ -144,7 +144,7 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
       };
 
       // If chunkId not corresponding chunkName will skip load it.
-      source.add(RawSource::from(
+      source.add(RawStringSource::from(
         include_str!("runtime/import_scripts_chunk_loading.js")
           .cow_replace("$BODY$", body.as_str())
           .cow_replace("$CHUNK_LOADING_GLOBAL_EXPR$", &chunk_loading_global_expr)
@@ -167,7 +167,7 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
           RuntimeGlobals::GET_CHUNK_UPDATE_SCRIPT_FILENAME
         )
       };
-      source.add(RawSource::from(
+      source.add(RawStringSource::from(
         include_str!("runtime/import_scripts_chunk_loading_with_hmr.js")
           .cow_replace("$URL$", &url)
           .cow_replace("$globalObject$", &compilation.options.output.global_object)
@@ -178,14 +178,14 @@ impl RuntimeModule for ImportScriptsChunkLoadingRuntimeModule {
           )
           .into_owned(),
       ));
-      source.add(RawSource::from(generate_javascript_hmr_runtime(
+      source.add(RawStringSource::from(generate_javascript_hmr_runtime(
         "importScripts",
       )));
     }
 
     if with_hmr_manifest {
       // TODO: import_scripts_chunk_loading_with_hmr_manifest same as jsonp_chunk_loading_with_hmr_manifest
-      source.add(RawSource::from(include_str!(
+      source.add(RawStringSource::from_static(include_str!(
         "runtime/import_scripts_chunk_loading_with_hmr_manifest.js"
       )));
     }

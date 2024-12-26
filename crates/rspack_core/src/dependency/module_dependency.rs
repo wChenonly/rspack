@@ -1,8 +1,10 @@
 use dyn_clone::clone_trait_object;
+use rspack_cacheable::cacheable_dyn;
 
 use super::Dependency;
 use crate::{DependencyCondition, ErrorSpan};
 
+#[cacheable_dyn]
 pub trait ModuleDependency: Dependency {
   fn request(&self) -> &str;
 
@@ -32,10 +34,6 @@ pub trait ModuleDependency: Dependency {
   }
 
   fn get_condition(&self) -> Option<DependencyCondition> {
-    None
-  }
-
-  fn is_export_all(&self) -> Option<bool> {
     None
   }
 }

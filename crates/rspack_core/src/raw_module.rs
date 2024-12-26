@@ -1,9 +1,10 @@
 use std::borrow::Cow;
 
+use rspack_cacheable::{cacheable, cacheable_dyn, with::AsPreset};
 use rspack_collections::Identifiable;
 use rspack_error::{impl_empty_diagnosable_trait, Diagnostic, Result};
 use rspack_macros::impl_source_map_config;
-use rspack_sources::{BoxSource, RawSource, Source, SourceExt};
+use rspack_sources::{BoxSource, RawStringSource, Source, SourceExt};
 use rspack_util::source_map::SourceMapKind;
 
 use crate::{
@@ -14,10 +15,12 @@ use crate::{
 use crate::{module_update_hash, Compilation, ConcatenationScope, FactoryMeta};
 
 #[impl_source_map_config]
+#[cacheable]
 #[derive(Debug)]
 pub struct RawModule {
   blocks: Vec<AsyncDependenciesBlockIdentifier>,
   dependencies: Vec<DependencyId>,
+  #[cacheable(with=AsPreset)]
   source: BoxSource,
   identifier: ModuleIdentifier,
   readable_identifier: String,
@@ -40,7 +43,7 @@ impl RawModule {
       blocks: Default::default(),
       dependencies: Default::default(),
       // TODO: useSourceMap, etc...
-      source: RawSource::from(source).boxed(),
+      source: RawStringSource::from(source).boxed(),
       identifier,
       readable_identifier,
       runtime_requirements,
@@ -71,11 +74,16 @@ impl DependenciesBlock for RawModule {
     self.dependencies.push(dependency)
   }
 
+  fn remove_dependency_id(&mut self, dependency: DependencyId) {
+    self.dependencies.retain(|d| d != &dependency)
+  }
+
   fn get_dependencies(&self) -> &[DependencyId] {
     &self.dependencies
   }
 }
 
+#[cacheable_dyn]
 #[async_trait::async_trait]
 impl Module for RawModule {
   impl_module_meta_info!();
@@ -100,13 +108,13 @@ impl Module for RawModule {
     Cow::Borrowed(&self.readable_identifier)
   }
 
-  fn size(&self, _source_type: Option<&SourceType>, _compilation: &Compilation) -> f64 {
+  fn size(&self, _source_type: Option<&SourceType>, _compilation: Option<&Compilation>) -> f64 {
     f64::max(1.0, self.source.size() as f64)
   }
 
   async fn build(
     &mut self,
-    _build_context: BuildContext<'_>,
+    _build_context: BuildContext,
     _: Option<&Compilation>,
   ) -> Result<BuildResult> {
     Ok(BuildResult {
@@ -123,18 +131,13 @@ impl Module for RawModule {
   #[tracing::instrument(name = "RawModule::code_generation", skip_all, fields(identifier = ?self.identifier()))]
   fn code_generation(
     &self,
-    compilation: &crate::Compilation,
+    _compilation: &crate::Compilation,
     _runtime: Option<&RuntimeSpec>,
     _: Option<ConcatenationScope>,
   ) -> Result<CodeGenerationResult> {
     let mut cgr = CodeGenerationResult::default();
     cgr.runtime_requirements.insert(self.runtime_requirements);
     cgr.add(SourceType::JavaScript, self.source.clone());
-    cgr.set_hash(
-      &compilation.options.output.hash_function,
-      &compilation.options.output.hash_digest,
-      &compilation.options.output.hash_salt,
-    );
     Ok(cgr)
   }
 

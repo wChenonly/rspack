@@ -1,4 +1,5 @@
 use json::JsonValue;
+use rspack_cacheable::{cacheable, cacheable_dyn, with::AsPreset};
 use rspack_core::{
   AsContextDependency, AsModuleDependency, Compilation, Dependency, DependencyId,
   DependencyTemplate, ExportNameOrSpec, ExportSpec, ExportsOfExportsSpec, ExportsSpec, ModuleGraph,
@@ -6,21 +7,26 @@ use rspack_core::{
 };
 use rspack_util::{ext::DynHash, itoa};
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct JsonExportsDependency {
   id: DependencyId,
+  #[cacheable(with=AsPreset)]
   data: JsonValue,
+  exports_depth: u32,
 }
 
 impl JsonExportsDependency {
-  pub fn new(data: JsonValue) -> Self {
+  pub fn new(data: JsonValue, exports_depth: u32) -> Self {
     Self {
       data,
       id: DependencyId::new(),
+      exports_depth,
     }
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for JsonExportsDependency {
   fn id(&self) -> &rspack_core::DependencyId {
     &self.id
@@ -28,7 +34,8 @@ impl Dependency for JsonExportsDependency {
 
   fn get_exports(&self, _mg: &ModuleGraph) -> Option<ExportsSpec> {
     Some(ExportsSpec {
-      exports: get_exports_from_data(&self.data).unwrap_or(ExportsOfExportsSpec::Null),
+      exports: get_exports_from_data(&self.data, self.exports_depth, 1)
+        .unwrap_or(ExportsOfExportsSpec::Null),
       ..Default::default()
     })
   }
@@ -41,6 +48,7 @@ impl Dependency for JsonExportsDependency {
 impl AsModuleDependency for JsonExportsDependency {}
 impl AsContextDependency for JsonExportsDependency {}
 
+#[cacheable_dyn]
 impl DependencyTemplate for JsonExportsDependency {
   fn apply(
     &self,
@@ -63,7 +71,14 @@ impl DependencyTemplate for JsonExportsDependency {
   }
 }
 
-fn get_exports_from_data(data: &JsonValue) -> Option<ExportsOfExportsSpec> {
+fn get_exports_from_data(
+  data: &JsonValue,
+  exports_depth: u32,
+  cur_depth: u32,
+) -> Option<ExportsOfExportsSpec> {
+  if cur_depth > exports_depth {
+    return None;
+  }
   let ret = match data {
     JsonValue::Null
     | JsonValue::Short(_)
@@ -79,11 +94,13 @@ fn get_exports_from_data(data: &JsonValue) -> Option<ExportsOfExportsSpec> {
           ExportNameOrSpec::ExportSpec(ExportSpec {
             name: k.into(),
             can_mangle: Some(true),
-            exports: get_exports_from_data(v).map(|item| match item {
-              ExportsOfExportsSpec::True => unreachable!(),
-              ExportsOfExportsSpec::Null => unreachable!(),
-              ExportsOfExportsSpec::Array(arr) => arr,
-            }),
+            exports: get_exports_from_data(v, exports_depth, cur_depth + 1).map(
+              |item| match item {
+                ExportsOfExportsSpec::True => unreachable!(),
+                ExportsOfExportsSpec::Null => unreachable!(),
+                ExportsOfExportsSpec::Array(arr) => arr,
+              },
+            ),
             ..Default::default()
           })
         })
@@ -101,9 +118,11 @@ fn get_exports_from_data(data: &JsonValue) -> Option<ExportsOfExportsSpec> {
             ExportNameOrSpec::ExportSpec(ExportSpec {
               name: itoa!(i).into(),
               can_mangle: Some(true),
-              exports: get_exports_from_data(item).map(|item| match item {
-                ExportsOfExportsSpec::True | ExportsOfExportsSpec::Null => unreachable!(),
-                ExportsOfExportsSpec::Array(arr) => arr,
+              exports: get_exports_from_data(item, exports_depth, cur_depth + 1).map(|item| {
+                match item {
+                  ExportsOfExportsSpec::True | ExportsOfExportsSpec::Null => unreachable!(),
+                  ExportsOfExportsSpec::Array(arr) => arr,
+                }
               }),
               ..Default::default()
             })

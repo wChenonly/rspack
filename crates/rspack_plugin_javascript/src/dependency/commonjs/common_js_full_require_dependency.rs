@@ -1,6 +1,10 @@
+use rspack_cacheable::{
+  cacheable, cacheable_dyn,
+  with::{AsPreset, AsVec, Skip},
+};
 use rspack_core::{
-  module_id, property_access, to_normal_comment, Compilation, ExportsType,
-  ExtendedReferencedExport, ModuleGraph, RealDependencyLocation, RuntimeGlobals, RuntimeSpec,
+  module_id, property_access, to_normal_comment, Compilation, DependencyLocation, DependencyRange,
+  ExportsType, ExtendedReferencedExport, ModuleGraph, RuntimeGlobals, RuntimeSpec, SharedSourceMap,
   UsedName,
 };
 use rspack_core::{AsContextDependency, Dependency, DependencyCategory};
@@ -9,25 +13,30 @@ use rspack_core::{DependencyType, ModuleDependency};
 use rspack_core::{TemplateContext, TemplateReplaceSource};
 use swc_core::atoms::Atom;
 
+#[cacheable]
 #[derive(Debug, Clone)]
 pub struct CommonJsFullRequireDependency {
   id: DependencyId,
   request: String,
+  #[cacheable(with=AsVec<AsPreset>)]
   names: Vec<Atom>,
-  range: RealDependencyLocation,
+  range: DependencyRange,
   is_call: bool,
   optional: bool,
   asi_safe: bool,
+  #[cacheable(with=Skip)]
+  source_map: Option<SharedSourceMap>,
 }
 
 impl CommonJsFullRequireDependency {
   pub fn new(
     request: String,
     names: Vec<Atom>,
-    range: RealDependencyLocation,
+    range: DependencyRange,
     is_call: bool,
     optional: bool,
     asi_safe: bool,
+    source_map: Option<SharedSourceMap>,
   ) -> Self {
     Self {
       id: DependencyId::new(),
@@ -37,10 +46,12 @@ impl CommonJsFullRequireDependency {
       is_call,
       optional,
       asi_safe,
+      source_map,
     }
   }
 }
 
+#[cacheable_dyn]
 impl Dependency for CommonJsFullRequireDependency {
   fn id(&self) -> &DependencyId {
     &self.id
@@ -54,11 +65,11 @@ impl Dependency for CommonJsFullRequireDependency {
     &DependencyType::CjsRequire
   }
 
-  fn loc(&self) -> Option<String> {
-    Some(self.range.to_string())
+  fn loc(&self) -> Option<DependencyLocation> {
+    self.range.to_loc(self.source_map.as_ref())
   }
 
-  fn range(&self) -> Option<&RealDependencyLocation> {
+  fn range(&self) -> Option<&DependencyRange> {
     Some(&self.range)
   }
 
@@ -90,6 +101,7 @@ impl Dependency for CommonJsFullRequireDependency {
   }
 }
 
+#[cacheable_dyn]
 impl ModuleDependency for CommonJsFullRequireDependency {
   fn request(&self) -> &str {
     &self.request
@@ -108,6 +120,7 @@ impl ModuleDependency for CommonJsFullRequireDependency {
   }
 }
 
+#[cacheable_dyn]
 impl DependencyTemplate for CommonJsFullRequireDependency {
   fn apply(
     &self,

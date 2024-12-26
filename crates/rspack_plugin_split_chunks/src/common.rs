@@ -1,13 +1,13 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use derivative::Derivative;
-use rspack_core::{Chunk, ChunkGroupByUkey, Module, SourceType};
+use derive_more::Debug;
+use rspack_core::{Chunk, Compilation, Module, SourceType};
 use rspack_error::Result;
 use rspack_regex::RspackRegex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-pub type ChunkFilter = Arc<dyn Fn(&Chunk, &ChunkGroupByUkey) -> Result<bool> + Send + Sync>;
+pub type ChunkFilter = Arc<dyn Fn(&Chunk, &Compilation) -> Result<bool> + Send + Sync>;
 pub type ModuleTypeFilter = Arc<dyn Fn(&dyn Module) -> bool + Send + Sync>;
 pub type ModuleLayerFilter = Arc<dyn Fn(&dyn Module) -> bool + Send + Sync>;
 
@@ -20,15 +20,15 @@ pub fn create_default_module_layer_filter() -> ModuleTypeFilter {
 }
 
 pub fn create_async_chunk_filter() -> ChunkFilter {
-  Arc::new(|chunk, chunk_group_db| Ok(!chunk.can_be_initial(chunk_group_db)))
+  Arc::new(|chunk, compilation| Ok(!chunk.can_be_initial(&compilation.chunk_group_by_ukey)))
 }
 
 pub fn create_initial_chunk_filter() -> ChunkFilter {
-  Arc::new(|chunk, chunk_group_db| Ok(chunk.can_be_initial(chunk_group_db)))
+  Arc::new(|chunk, compilation| Ok(chunk.can_be_initial(&compilation.chunk_group_by_ukey)))
 }
 
 pub fn create_all_chunk_filter() -> ChunkFilter {
-  Arc::new(|_chunk, _chunk_group_db| Ok(true))
+  Arc::new(|_chunk, _compilation| Ok(true))
 }
 
 pub fn create_chunk_filter_from_str(chunks: &str) -> ChunkFilter {
@@ -41,7 +41,7 @@ pub fn create_chunk_filter_from_str(chunks: &str) -> ChunkFilter {
 }
 
 pub fn create_regex_chunk_filter_from_str(re: RspackRegex) -> ChunkFilter {
-  Arc::new(move |chunk, _| Ok(chunk.name.as_ref().map_or(false, |name| re.test(name))))
+  Arc::new(move |chunk, _| Ok(chunk.name().is_some_and(|name| re.test(name))))
 }
 
 #[derive(Debug, Default, Clone)]
@@ -122,6 +122,10 @@ impl SplitChunkSizes {
   pub fn add_by(&mut self, other: &Self) {
     self.combine_with(other, &|a, b| a + b)
   }
+
+  pub fn subtract_by(&mut self, other: &Self) {
+    self.combine_with(other, &|a, b| a - b)
+  }
 }
 
 impl Deref for SplitChunkSizes {
@@ -138,10 +142,9 @@ impl DerefMut for SplitChunkSizes {
   }
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct FallbackCacheGroup {
-  #[derivative(Debug = "ignore")]
+  #[debug(skip)]
   pub chunks_filter: ChunkFilter,
   pub min_size: SplitChunkSizes,
   pub max_async_size: SplitChunkSizes,
